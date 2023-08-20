@@ -1,0 +1,23 @@
+{
+	"image": "mcr.microsoft.com/devcontainers/universal:2",
+	"features": {
+		"ghcr.io/devcontainers-contrib/features/haskell:2": {
+			"installHLS": true,
+			"downgradeGhcToSupportHls": true,
+			"installStack": true,
+			"installStackGHCupHook": true,
+			"adjustBash": true,
+			"ghcVersion": "recommended",
+			"cabalVersion": "recommended",
+			"globalPackages": ""
+		}
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"haskell.haskell",
+				"justusadam.language-haskell"
+			]
+		}
+	}
+}

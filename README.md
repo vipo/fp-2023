@@ -1,7 +1,8 @@
 # fp-2023
 
 ## Setup
-1. Fork this repository, checkout the fork.
+1. Fork this repository, checkout the fork. This project uses GitHub Actions haskell workflow,
+please preserve its configuration.
 2. Install [ghcup](https://www.haskell.org/ghcup/), please note you might need to install
 additional packages, as descriped [here](https://www.haskell.org/ghcup/install/). Just agree
 with all defaults during the installation. `ghcup` binary should appear in your `PATH` (you

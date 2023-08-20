@@ -3,6 +3,7 @@ module Main (main) where
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Data.Either.Extra (maybeToEither)
 import Data.List qualified as L
+import InMemoryTables (database)
 import Lib1 qualified
 import System.Console.Repline
   ( CompleterStyle (Word),
@@ -42,7 +43,7 @@ cmd c = do
     cmd' :: Integer -> Either String String
     cmd' s = do
       table <- Lib1.parseSelectAllStatement c
-      df <- maybeToEither ("Table not found: " ++ table) (Lib1.findTableByName Lib1.inMemoryDatabase table)
+      df <- maybeToEither ("Table not found: " ++ table) (Lib1.findTableByName database table)
       _ <- Lib1.validateDataFrame df
       return $ Lib1.renderDataFrameAsTable s df
 

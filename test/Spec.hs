@@ -1,5 +1,6 @@
 import Data.Either
 import Data.Maybe ()
+import InMemoryTables qualified as D
 import Lib1
 import Test.Hspec
 
@@ -9,11 +10,11 @@ main = hspec $ do
     it "handles empty lists" $ do
       Lib1.findTableByName [] "" `shouldBe` Nothing
     it "handles empty names" $ do
-      Lib1.findTableByName Lib1.inMemoryDatabase "" `shouldBe` Nothing
+      Lib1.findTableByName D.database "" `shouldBe` Nothing
     it "can find by name" $ do
-      Lib1.findTableByName Lib1.inMemoryDatabase "employees" `shouldBe` Just employeesTable
+      Lib1.findTableByName D.database "employees" `shouldBe` Just (snd D.tableEmployees)
     it "can find by case-insensitive name" $ do
-      Lib1.findTableByName Lib1.inMemoryDatabase "employEEs" `shouldBe` Just employeesTable
+      Lib1.findTableByName D.database "employEEs" `shouldBe` Just (snd D.tableEmployees)
   describe "Lib1.parseSelectAllStatement" $ do
     it "handles empty input" $ do
       Lib1.parseSelectAllStatement "" `shouldSatisfy` isLeft
@@ -23,15 +24,13 @@ main = hspec $ do
       Lib1.parseSelectAllStatement "selecT * from dual;" `shouldBe` Right "dual"
   describe "Lib1.validateDataFrame" $ do
     it "finds types mismatch" $ do
-      Lib1.validateDataFrame tableInvalid1 `shouldSatisfy` isLeft
+      Lib1.validateDataFrame (snd D.tableInvalid1) `shouldSatisfy` isLeft
     it "finds column size mismatch" $ do
-      Lib1.validateDataFrame tableInvalid2 `shouldSatisfy` isLeft
+      Lib1.validateDataFrame (snd D.tableInvalid2) `shouldSatisfy` isLeft
+    it "reports different error messages" $ do
+      Lib1.validateDataFrame (snd D.tableInvalid1) `shouldNotBe` Lib1.validateDataFrame (snd D.tableInvalid2)
     it "passes valid tables" $ do
-      Lib1.validateDataFrame tableInvalid2 `shouldBe` Right ()
+      Lib1.validateDataFrame (snd D.tableWithNulls) `shouldBe` Right ()
   describe "Lib1.renderDataFrameAsTable" $ do
     it "renders a table" $ do
-      Lib1.renderDataFrameAsTable 100 employeesTable `shouldSatisfy` not . null
-  where
-    employeesTable = snd (head Lib1.inMemoryDatabase)
-    tableInvalid1 = snd (Lib1.inMemoryDatabase !! 1)
-    tableInvalid2 = snd (Lib1.inMemoryDatabase !! 1)
+      Lib1.renderDataFrameAsTable 100 (snd D.tableEmployees) `shouldSatisfy` not . null

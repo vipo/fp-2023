@@ -34,7 +34,7 @@ validateDataFrame _ = error "validateDataFrame ot implemented"
 
 -- 4) implement the function which renders a given data frame
 -- as ascii-art table (use your imagination, there is no "correct"
--- solution for this task!), should respect terminal
+-- answer for this task!), it should respect terminal
 -- width (in chars, provided as the first argument)
 renderDataFrameAsTable :: Integer -> DataFrame -> String
 renderDataFrameAsTable _ _ = error "renderDataFrameAsTable not implemented"

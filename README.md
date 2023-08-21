@@ -3,13 +3,18 @@
 ## Setup
 1. Fork this repository, checkout the fork. This project uses GitHub Actions haskell workflow,
 please preserve its configuration.
-2. Install [ghcup](https://www.haskell.org/ghcup/), please note you might need to install
-additional packages, as descriped [here](https://www.haskell.org/ghcup/install/). Just agree
-with all defaults during the installation. `ghcup` binary should appear in your `PATH` (you
-might need to restart your computer).
-3. Install (if not already installed) VSCode. When done, add Haskell ("Haskell language support")
-extension.
-4. Open any .hs file in the checked out (step 1) repository. Haskell extension should pick up
+2. Now you have two options
+  - Use GitHub Codespaces (Code -> Codespaces) to develop directly in browser. This is paid
+  GitHub feature, but: you get a few compute hours for free and you can get even more if you
+  register as student.
+  - Use your computer:
+    - Install [ghcup](https://www.haskell.org/ghcup/), please note you might need to install
+      additional packages, as descriped [here](https://www.haskell.org/ghcup/install/). Just agree
+      with all defaults during the installation. `ghcup` binary should appear in your `PATH` (you
+      might need to restart your computer).
+    - Install (if not already installed) VSCode. When done, add Haskell ("Haskell language support")
+      extension.
+3. Open any .hs file in the checked out (step 1) repository. Haskell extension should pick up
 [project settings](.vscode/settings.json) and install all dependencies. This might take some
 time. If the magic does not happen, please install ghcup components manually:
 

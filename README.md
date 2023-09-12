@@ -1,7 +1,7 @@
 # fp-2023
 
 ## Setup
-1. Fork this repository, checkout the fork. This project uses GitHub Actions haskell workflow,
+1. Checkout the repository. This project uses GitHub Actions haskell workflow,
 please preserve its configuration.
 2. Now you have two options
   - Use GitHub Codespaces (Code -> Codespaces) to develop directly in browser. This is paid

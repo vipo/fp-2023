@@ -28,6 +28,7 @@ library
       DataFrame
       InMemoryTables
       Lessons.Lesson01
+      Lessons.Lesson02
       Lib1
   other-modules:
       Paths_fp2023

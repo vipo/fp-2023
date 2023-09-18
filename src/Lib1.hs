@@ -21,24 +21,21 @@ type Database = [(TableName, DataFrame)]
 -- in provided Database list
 findTableByName :: Database -> String -> Maybe DataFrame
 findTableByName database tableName = findTableByName' database (lowerCaseString tableName)
+    where
+        findTableByName' :: Database -> String -> Maybe DataFrame
+        findTableByName' [] _ = Nothing
+        findTableByName' (x:xs) lowerTableName
+            | lowerCaseString (fst x) == lowerTableName = (Just (snd x))
+            | otherwise = findTableByName' xs lowerTableName
 
+        lowerCaseString :: String -> String
+        lowerCaseString [] = []
+        lowerCaseString (x:xs)
+            | isLowerCase x == True = toEnum (fromEnum x + 32) : lowerCaseString xs
+            | otherwise = x : lowerCaseString xs
 
-findTableByName' :: Database -> String -> Maybe DataFrame
-findTableByName' [] _ = Nothing
-findTableByName' (x:xs) lowerTableName
-  | lowerCaseString (fst x) == lowerTableName = (Just (snd x))
-  | otherwise = findTableByName' xs lowerTableName
-
-
-lowerCaseString :: String -> String
-lowerCaseString [] = []
-lowerCaseString (x:xs)
-  | isLowerCase x == True = toEnum (fromEnum x + 32) : lowerCaseString xs
-  | otherwise = x : lowerCaseString xs
-
-
-isLowerCase :: Char -> Bool
-isLowerCase c = if c >= 'A' && c <= 'Z' then True else False 
+        isLowerCase :: Char -> Bool
+        isLowerCase c = if c >= 'A' && c <= 'Z' then True else False 
 
 
 -- 2) implement the function which parses a "select * from ..."

@@ -40,7 +40,6 @@ lowerCaseString (x:xs)
 isLowerCase :: Char -> Bool
 isLowerCase c = if c >= 'A' && c <= 'Z' then True else False 
 
---findTableByName _ _ = error "findTableByName not implemented"
 
 -- 2) implement the function which parses a "select * from ..."
 -- sql statement and extracts a table name from the statement

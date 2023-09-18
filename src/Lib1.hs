@@ -36,7 +36,7 @@ validateDataFrame (DataFrame columns rows)
           validateRows = mapM_ validateRow rows
       in validateRows
 
--- 4) Render a given data frame as an ASCII-art table
+-- 4) Render a given data frame as an ASCII-art tablee
 renderDataFrameAsTable :: Integer -> DataFrame -> String
 renderDataFrameAsTable terminalWidth (DataFrame columns rows) = 
     let header = map (\(Column name _) -> name) columns

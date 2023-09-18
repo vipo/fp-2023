@@ -20,7 +20,27 @@ type Database = [(TableName, DataFrame)]
 -- 1) implement the function which returns a data frame by its name
 -- in provided Database list
 findTableByName :: Database -> String -> Maybe DataFrame
-findTableByName _ _ = error "findTableByName not implemented"
+findTableByName database tableName = findTableByName' database (lowerCaseString tableName)
+
+
+findTableByName' :: Database -> String -> Maybe DataFrame
+findTableByName' [] _ = Nothing
+findTableByName' (x:xs) lowerTableName
+  | lowerCaseString (fst x) == lowerTableName = (Just (snd x))
+  | otherwise = findTableByName' xs lowerTableName
+
+
+lowerCaseString :: String -> String
+lowerCaseString [] = []
+lowerCaseString (x:xs)
+  | isLowerCase x == True = toEnum (fromEnum x + 32) : lowerCaseString xs
+  | otherwise = x : lowerCaseString xs
+
+
+isLowerCase :: Char -> Bool
+isLowerCase c = if c >= 'A' && c <= 'Z' then True else False 
+
+--findTableByName _ _ = error "findTableByName not implemented"
 
 -- 2) implement the function which parses a "select * from ..."
 -- sql statement and extracts a table name from the statement

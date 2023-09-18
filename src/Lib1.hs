@@ -11,42 +11,31 @@ where
 import Data.List (intercalate)
 import DataFrame (DataFrame(..), Column(..), Value(..), ColumnType(..))
 import InMemoryTables (TableName)
-import Data.Char (toLower)
 
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
 
 -- 1) Return a data frame by its name from the provided Database list
 findTableByName :: Database -> String -> Maybe DataFrame
-findTableByName db tableName = lookup (map toLower tableName) (map (\(name, df) -> (map toLower name, df)) db)
+findTableByName db tableName = lookup tableName db
 
 -- 2) Parse a "select * from ..." SQL statement and extract the table name
 parseSelectAllStatement :: String -> Either ErrorMessage TableName
 parseSelectAllStatement stmt = 
   case words stmt of
-    ("select" : "*" : "from" : tableName : _) -> Right tableName
+    ("select" : "*" : "from" : tableNameParts) -> Right (unwords tableNameParts)
     _ -> Left "Invalid SQL Statement"
 
 -- 3) Validate tables: check if columns match value types, if row sizes match columns, etc.
 validateDataFrame :: DataFrame -> Either ErrorMessage ()
 validateDataFrame (DataFrame columns rows) 
   | null rows = Right ()
+  | null columns = Left "No columns defined"
   | otherwise = 
       let expectedNumColumns = length columns
           validateRow r = if length r == expectedNumColumns then Right () else Left "Row size doesn't match columns"
           validateRows = mapM_ validateRow rows
-          validateTypes = all validateType (zip columns (transpose rows))
-      in if not validateTypes then Left "Type mismatch in columns" else validateRows
-
-validateType :: (Column, [Value]) -> Bool
-validateType (Column _ colType, values) = all (matchesType colType) values
-
-matchesType :: ColumnType -> Value -> Bool
-matchesType IntegerType (IntegerValue _) = True
-matchesType StringType (StringValue _) = True
-matchesType BoolType (BoolValue _) = True
-matchesType _ NullValue = True
-matchesType _ _ = False
+      in validateRows
 
 -- 4) Render a given data frame as an ASCII-art table
 renderDataFrameAsTable :: Integer -> DataFrame -> String

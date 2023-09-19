@@ -41,23 +41,34 @@ parseSelectAllStatement statement =
     removeLastChar (x : xs) = x : removeLastChar xs
 
 -- 3) Validate tables: check if columns match value types, if row sizes match columns, etc.
-validateDataFrame :: DataFrame -> Either ErrorMessage ()
-validateDataFrame (DataFrame [] _) = Left "DataFrame has no columns"
-validateDataFrame (DataFrame _ []) = Left "DataFrame has no rows"
-validateDataFrame (DataFrame cols rows)
-  | all validateRow rows = Right ()
-  | otherwise            = Left "Types mismatch or row sizes do not match columns"
-  where
-    validateRow :: Row -> Bool
-    validateRow row = length row == length cols && all validateColumnValue (zip cols row)
-
-    validateColumnValue :: (Column, Value) -> Bool
-    validateColumnValue (Column _ IntegerType, IntegerValue _) = True
-    validateColumnValue (Column _ StringType, StringValue _) = True
-    validateColumnValue (Column _ BoolType, BoolValue _) = True
-    validateColumnValue (Column _ _, NullValue) = True  -- Assuming Null is allowed for all types
-    validateColumnValue _ = False
-
+    validateDataFrame :: DataFrame -> Either ErrorMessage ()
+    validateDataFrame (DataFrame [] _) = Left "DataFrame has no columns"
+    validateDataFrame (DataFrame _ []) = Left "DataFrame has no rows"
+    validateDataFrame (DataFrame cols rows) = 
+        case findMismatchedRow rows of
+            Just rowIndex -> Left $ "Row " ++ show rowIndex ++ " size doesn't match columns"
+            Nothing -> 
+                case findMismatchedColumnType rows of
+                    Just (rowIndex, colIndex) -> Left $ "Type mismatch in row " ++ show rowIndex ++ ", column " ++ show colIndex
+                    Nothing -> Right ()
+      where
+        findMismatchedRow :: [Row] -> Maybe Int
+        findMismatchedRow = findIndex (\row -> length row /= length cols)
+    
+        findMismatchedColumnType :: [Row] -> Maybe (Int, Int)
+        findMismatchedColumnType = findIndexWithIndex (\rowIndex row -> 
+            isJust (findIndex (not . uncurry validateColumnValue) (zip cols row)))
+    
+        validateColumnValue :: Column -> Value -> Bool
+        validateColumnValue (Column _ IntegerType) (IntegerValue _) = True
+        validateColumnValue (Column _ StringType) (StringValue _) = True
+        validateColumnValue (Column _ BoolType) (BoolValue _) = True
+        validateColumnValue (Column _ _) NullValue = True  -- Assuming Null is allowed for all types
+        validateColumnValue _ _ = False
+    
+        findIndexWithIndex :: (Int -> a -> Bool) -> [a] -> Maybe (Int, Int)
+        findIndexWithIndex p xs = asum $ zipWith (\i x -> if p i x then Just (i, fromJust (findIndex (p i) xs)) else Nothing) [0..] xs
+    
 -- 4) Render a given data frame as an ASCII-art table
 renderDataFrameAsTable :: Integer -> DataFrame -> String
 renderDataFrameAsTable terminalWidth (DataFrame columns rows) = 

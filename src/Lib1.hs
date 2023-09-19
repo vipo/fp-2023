@@ -8,6 +8,7 @@ module Lib1
   )
 where
 
+import Data.Char
 import DataFrame (DataFrame)
 import InMemoryTables (TableName)
 
@@ -17,15 +18,17 @@ type Database = [(TableName, DataFrame)]
 
 -- Your code modifications go below this comment
 
+
+lowerString str = [ toLower loweredString | loweredString <- str]
 -- 1) implement the function which returns a data frame by its name
 -- in provided Database list
 findTableByName :: Database -> String -> Maybe DataFrame
-findTableByName dataBase tableName = lookup tableName dataBase
+findTableByName dataBase tableName = lookup (lowerString tableName) dataBase
 
 -- 2) implement the function which parses a "select * from ..."
 -- sql statement and extracts a table name from the statement
 parseSelectAllStatement :: String -> Either ErrorMessage TableName
-parseSelectAllStatement _ = error "parseSelectAllStatement not implemented"
+parseSelectAllStatement query 
 
 -- 3) implement the function which validates tables: checks if
 -- columns match value types, if rows sizes match columns,..

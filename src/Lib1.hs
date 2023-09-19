@@ -24,13 +24,19 @@ findTableByName db tableName =
 -- 2) Implement the function which parses a "select * from ..."
 -- sql statement and extracts a table name from the statement
 parseSelectAllStatement :: String -> Either ErrorMessage TableName
-parseSelectAllStatement stmt
-  | not $ "select * from " `isPrefixOf` stmt = Left "Invalid SQL statement. Expected 'select * from ...'"
-  | null tableName = Left "Table name missing"
-  | otherwise = Right tableName
-  where
-    tableName = dropWhile (== ' ') $ drop 14 stmt  -- Drop "select * from " prefix and leading spaces
-
+parseSelectAllStatement "" = Left "Empty select statement"
+parseSelectAllStatement statement =
+  case words [toUpper x | x <- statement] of
+    ["SELECT", "*", "FROM", tableName] -> validTableName tableName
+      where
+        originalTableName = last (words statement)
+        validTableName tableNameToCheck
+          | last tableNameToCheck == ';' && length tableNameToCheck > 1 = Right (removeLastChar originalTableName)
+          | otherwise = Left "Invalid sql statement"
+        removeLastChar :: String -> String
+        removeLastChar [a] = []
+        removeLastChar (x : xs) = x : removeLastChar xs
+    _ -> Left "Invalid SQL Statement"
 
 -- 3) Validate tables: check if columns match value types, if row sizes match columns, etc.
       validateDataFrame :: DataFrame -> Either ErrorMessage ()

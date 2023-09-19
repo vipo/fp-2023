@@ -8,10 +8,12 @@ module Lib1
   )
 where
 
-import Data.List (intercalate)
+import Data.List (intercalate, findIndex)
 import DataFrame (DataFrame(..), Column(..), Value(..), ColumnType(..), Row)
 import InMemoryTables (TableName)
 import Data.Char (toLower, toUpper)
+import Data.Maybe (fromJust, isJust)
+import Data.Foldable (asum)
 
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
@@ -41,16 +43,16 @@ parseSelectAllStatement statement =
     removeLastChar (x : xs) = x : removeLastChar xs
 
 -- 3) Validate tables: check if columns match value types, if row sizes match columns, etc.
-    validateDataFrame :: DataFrame -> Either ErrorMessage ()
-    validateDataFrame (DataFrame [] _) = Left "DataFrame has no columns"
-    validateDataFrame (DataFrame _ []) = Left "DataFrame has no rows"
-    validateDataFrame (DataFrame cols rows) = 
-        case findMismatchedRow rows of
-            Just rowIndex -> Left $ "Row " ++ show rowIndex ++ " size doesn't match columns"
-            Nothing -> 
-                case findMismatchedColumnType rows of
-                    Just (rowIndex, colIndex) -> Left $ "Type mismatch in row " ++ show rowIndex ++ ", column " ++ show colIndex
-                    Nothing -> Right ()
+validateDataFrame :: DataFrame -> Either ErrorMessage ()
+validateDataFrame (DataFrame [] _) = Left "DataFrame has no columns"    
+validateDataFrame (DataFrame _ []) = Left "DataFrame has no rows"
+validateDataFrame (DataFrame cols rows) = 
+         case findMismatchedRow rows of
+          Just rowIndex -> Left $ "Row " ++ show rowIndex ++ " size doesn't match columns"
+          Nothing -> 
+              case findMismatchedColumnType rows of
+                  Just (rowIndex, colIndex) -> Left $ "Type mismatch in row " ++ show rowIndex ++ ", column " ++ show colIndex
+                  Nothing -> Right ()
       where
         findMismatchedRow :: [Row] -> Maybe Int
         findMismatchedRow = findIndex (\row -> length row /= length cols)
@@ -75,7 +77,7 @@ renderDataFrameAsTable terminalWidth (DataFrame columns rows) =
     let header = map (\(Column name _) -> name) columns
         renderedRows = map (map renderValue) rows
         allRows = header : renderedRows
-        colWidths = map (\col -> maximum $ map length col) (transpose allRows)
+        colWidths = map (\col -> maximum $ map length col) (myTranspose allRows)
         totalWidth = sum colWidths + length colWidths + 1
         truncation = if totalWidth > fromIntegral terminalWidth then "..." else ""
         renderRow row = "|" ++ intercalate "|" (zipWith pad colWidths row) ++ "|"
@@ -91,6 +93,6 @@ renderValue (StringValue s) = s
 renderValue (BoolValue b) = show b
 renderValue NullValue = "NULL"
 
-transpose :: [[a]] -> [[a]]
-transpose ([]:_) = []
-transpose x = (map head x) : transpose (map tail x)
+myTranspose :: [[a]] -> [[a]]
+myTranspose ([]:_) = []
+myTranspose x = (map head x) : myTranspose (map tail x)

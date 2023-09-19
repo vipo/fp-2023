@@ -8,7 +8,9 @@ module Lib1
   )
 where
 
+import Data.List
 import Data.Char
+
 import DataFrame (DataFrame)
 import InMemoryTables (TableName)
 
@@ -29,6 +31,9 @@ findTableByName dataBase tableName = lookup (lowerString tableName) dataBase
 -- sql statement and extracts a table name from the statement
 parseSelectAllStatement :: String -> Either ErrorMessage TableName
 parseSelectAllStatement query 
+  | isPrefixOf "select * from" (lowerString query) = Right (drop 14 (init query))
+  | otherwise = Left "of"
+
 
 -- 3) implement the function which validates tables: checks if
 -- columns match value types, if rows sizes match columns,..

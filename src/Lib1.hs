@@ -32,13 +32,13 @@ findTableByName dataBase tableName = lookup (lowerString tableName) dataBase
 parseSelectAllStatement :: String -> Either ErrorMessage TableName
 parseSelectAllStatement query 
   | isPrefixOf "select * from" (lowerString query) = Right (drop 14 (init query))
-  | otherwise = Left "of"
+  | otherwise = Left "The query is wrong"
 
 
 -- 3) implement the function which validates tables: checks if
 -- columns match value types, if rows sizes match columns,..
 validateDataFrame :: DataFrame -> Either ErrorMessage ()
-validateDataFrame _ = error "validateDataFrame ot implemented"
+validateDataFrame dataFrame = error "validateDataFrame ot implemented"
 
 -- 4) implement the function which renders a given data frame
 -- as ascii-art table (use your imagination, there is no "correct"

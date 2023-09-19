@@ -11,31 +11,45 @@ where
 import Data.List (intercalate)
 import DataFrame (DataFrame(..), Column(..), Value(..), ColumnType(..))
 import InMemoryTables (TableName)
+import Data.Char (toLower)
 
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
 
 -- 1) Return a data frame by its name from the provided Database list
 findTableByName :: Database -> String -> Maybe DataFrame
-findTableByName db tableName = lookup tableName db
+findTableByName db tableName = 
+    lookup (map toLower tableName) (map (\(name, df) -> (map toLower name, df)) db)
 
--- 2) Parse a "select * from ..." SQL statement and extract the table name
+-- 2) Implement the function which parses a "select * from ..."
+-- sql statement and extracts a table name from the statement
 parseSelectAllStatement :: String -> Either ErrorMessage TableName
-parseSelectAllStatement stmt = 
-  case words stmt of
-    ("select" : "*" : "from" : tableNameParts) -> Right (unwords tableNameParts)
-    _ -> Left "Invalid SQL Statement"
+parseSelectAllStatement stmt
+  | not $ "select * from " `isPrefixOf` stmt = Left "Invalid SQL statement. Expected 'select * from ...'"
+  | null tableName = Left "Table name missing"
+  | otherwise = Right tableName
+  where
+    tableName = dropWhile (== ' ') $ drop 14 stmt  -- Drop "select * from " prefix and leading spaces
+
 
 -- 3) Validate tables: check if columns match value types, if row sizes match columns, etc.
-validateDataFrame :: DataFrame -> Either ErrorMessage ()
-validateDataFrame (DataFrame columns rows) 
-  | null rows = Right ()
-  | null columns = Left "No columns defined"
-  | otherwise = 
-      let expectedNumColumns = length columns
-          validateRow r = if length r == expectedNumColumns then Right () else Left "Row size doesn't match columns"
-          validateRows = mapM_ validateRow rows
-      in validateRows
+      validateDataFrame :: DataFrame -> Either ErrorMessage ()
+      validateDataFrame (DataFrame [] _) = Left "DataFrame has no columns"
+      validateDataFrame (DataFrame _ []) = Left "DataFrame has no rows"
+      validateDataFrame (DataFrame cols rows) =
+        if all validateRow rows
+        then Right ()
+        else Left "Types mismatch or row sizes do not match columns"
+        where
+          validateRow :: Row -> Bool
+          validateRow row = length row == length cols && all validateColumnValue (zip cols row)
+      
+          validateColumnValue :: (Column, Value) -> Bool
+          validateColumnValue (Column _ IntegerType, IntegerValue _) = True
+          validateColumnValue (Column _ StringType, StringValue _) = True
+          validateColumnValue (Column _ BoolType, BoolValue _) = True
+          validateColumnValue (Column _ _, NullValue) = True  -- Assuming Null is allowed for all types
+          validateColumnValue _ = False
 
 -- 4) Render a given data frame as an ASCII-art table
 renderDataFrameAsTable :: Integer -> DataFrame -> String

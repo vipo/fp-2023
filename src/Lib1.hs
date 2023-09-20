@@ -37,8 +37,10 @@ parseSelectAllStatement query
 
 -- 3) implement the function which validates tables: checks if
 -- columns match value types, if rows sizes match columns,..
-validateDataFrame :: DataFrame -> Either ErrorMessage ()
-validateDataFrame dataFrame = error "validateDataFrame ot implemented"
+ validateDataFrame :: DataFrame -> Either ErrorMessage ()
+validateDataFrame dataFrame 
+   | naudoti typeof 
+   | otherwise = Left "The query is wrong"
 
 -- 4) implement the function which renders a given data frame
 -- as ascii-art table (use your imagination, there is no "correct"

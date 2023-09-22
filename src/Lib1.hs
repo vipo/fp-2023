@@ -69,34 +69,45 @@ validateDataFrame (DataFrame cols rows) = validateRows rows
 -- answer for this task!), it should respect terminal
 -- width (in chars, provided as the first argument)
 renderDataFrameAsTable :: Integer -> DataFrame -> String
-renderDataFrameAsTable n (DataFrame columns rows) = header ++ "\n"
-  where
-      cWidths = calculateCWidths n columns
-      header = makeHeader columns cWidths
-      --separator = makeSeparator cWidths
-      --allRows = makeRows rows cWidths
+renderDataFrameAsTable n (DataFrame columns rows) = header ++ "\n" ++ allRows
+    where
+        cWidths = calculateCWidths n columns
+        header = makeHeader columns cWidths
+        allRows = makeRows rows cWidths
 
-      calculateCWidths :: Integer -> [Column] -> [Int]
-      calculateCWidths maxWidth columnArray = 
-          let columnNum = length columnArray
-              cellWidth = maxWidth `div` fromIntegral columnNum
-          in replicate columnNum (fromIntegral cellWidth)
+        calculateCWidths :: Integer -> [Column] -> [Int]
+        calculateCWidths maxWidth columnArray = 
+            let columnNum = length columnArray
+                cellWidth = maxWidth `div` fromIntegral columnNum
+            in replicate columnNum (fromIntegral cellWidth)
 
-      makeHeader :: [Column] -> [Int] -> String
-      makeHeader allColumns cWidthArray =
-          let headerCells = zipWith makeHCell allColumns cWidthArray
-          in "|" ++ concat headerCells
+        makeHeader :: [Column] -> [Int] -> String
+        makeHeader allColumns cWidthArray =
+            let headerCells = zipWith makeHCell allColumns cWidthArray
+            in "|" ++ concat headerCells
 
-      makeHCell :: Column -> Int -> String
-      makeHCell (Column name _) w = makeCell (StringValue name) w
+        makeRows :: [Row] -> [Int] -> String
+        makeRows rowArray cWidth = 
+            let readyRows = map (makeSingleRow cWidth) rowArray
+            in unlines readyRows
 
-      makeCell :: Value -> Int -> String
-      makeCell value width = 
-          let cellContent = case value of
-                  StringValue s -> s 
-                  IntegerValue i -> show i
-                  BoolValue b -> if b then "True" else "False"
-                  NullValue-> ""
-              strLen = length cellContent
-              emptySpace = width - strLen - 1
-          in replicate emptySpace ' ' ++ cellContent ++ "|"
+        makeSingleRow :: [Int] -> Row -> String
+        makeSingleRow widths row = 
+            let cells = zipWith makeCell row widths
+            in "|" ++ concat cells ++ "|"
+
+        makeHCell :: Column -> Int -> String
+        makeHCell (Column name _) w = makeCell (StringValue name) w
+
+        makeCell :: Value -> Int -> String
+        makeCell value width = 
+            let cellContent = case value of
+                    StringValue s -> s 
+                    IntegerValue i -> show i
+                    BoolValue b -> if b then "True" else "False"
+                    NullValue-> ""
+                strLen = length cellContent
+                emptySpace = width - strLen - 1
+            in replicate emptySpace ' ' ++ cellContent ++ "|"
+
+    

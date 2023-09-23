@@ -8,43 +8,116 @@ module Lib1
   )
 where
 
-import Data.List
-import Data.Char
+import Data.Char ( toLower )
 
-import DataFrame (DataFrame)
+import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
 import InMemoryTables (TableName)
 
 type ErrorMessage = String
 
-type Database = [(TableName, DataFrame)]
+type Database = [(TableName, DataFrame.DataFrame)]
 
 -- Your code modifications go below this comment
 
 
+lowerString :: [Char] -> [Char]
 lowerString str = [ toLower loweredString | loweredString <- str]
+
+joinWithSeparator :: String -> [String] -> String
+joinWithSeparator _ [] = ""
+joinWithSeparator sep (x:xs) = x ++ concatMap (sep ++) xs
+
+isPrefixOf' :: (Eq a) => [a] -> [a] -> Bool
+isPrefixOf' [] _ = True
+isPrefixOf' _ [] = False
+isPrefixOf' (x:xs) (y:ys) 
+  | null xs && x == y = True
+  | x == y            = isPrefixOf' xs ys
+  | otherwise         = False
+
 -- 1) implement the function which returns a data frame by its name
 -- in provided Database list
-findTableByName :: Database -> String -> Maybe DataFrame
+findTableByName :: Database -> String -> Maybe DataFrame.DataFrame
 findTableByName dataBase tableName = lookup (lowerString tableName) dataBase
 
 -- 2) implement the function which parses a "select * from ..."
 -- sql statement and extracts a table name from the statement
 parseSelectAllStatement :: String -> Either ErrorMessage TableName
-parseSelectAllStatement query 
-  | isPrefixOf "select * from" (lowerString query) = Right (drop 14 (init query))
+parseSelectAllStatement query
+  | "select * from" `isPrefixOf'` lowerString query = Right (drop 14 (init query))
   | otherwise = Left "The query is wrong"
 
 
 -- 3) implement the function which validates tables: checks if
 -- columns match value types, if rows sizes match columns,..
- validateDataFrame :: DataFrame -> Either ErrorMessage ()
-validateDataFrame dataFrame 
-   | naudoti typeof 
+validateDataFrame :: DataFrame.DataFrame -> Either ErrorMessage ()
+validateDataFrame dataFrame
+   | 1 == 1 = Right ()
    | otherwise = Left "The query is wrong"
 
 -- 4) implement the function which renders a given data frame
 -- as ascii-art table (use your imagination, there is no "correct"
 -- answer for this task!), it should respect terminal
 -- width (in chars, provided as the first argument)
-renderDataFrameAsTable :: Integer -> DataFrame -> String
-renderDataFrameAsTable _ _ = error "renderDataFrameAsTable not implemented"
+renderDataFrameAsTable :: Integer -> DataFrame.DataFrame -> String
+renderDataFrameAsTable terminalWidth (DataFrame columns rows) =
+  let
+    -- Calculate the maximum width for each column
+    maxColumnWidths = map (maximum . map (valueWidth terminalWidth)) (transposeRows rows)
+
+    -- Format a row as a string with proper column widths
+    formatRow :: Row -> String
+    formatRow row =
+      let
+        formattedValues = zipWith3 formatValue maxColumnWidths row columns
+      in
+        "|" ++ joinWithSeparator "|" formattedValues ++ "|\n"
+
+    -- Format a single value as a string with a specified width
+    formatValue :: Int -> Value -> Column -> String
+    formatValue width value (Column _ columnType) =
+      let
+        paddedValue = case value of
+          IntegerValue int -> padLeft width (show int)
+          StringValue str  -> padRight width str
+          BoolValue bool   -> padRight width (show bool)
+          NullValue        -> padRight width "NULL"
+      in
+        case columnType of
+          IntegerType -> padLeft width paddedValue
+          StringType  -> padRight width paddedValue
+          BoolType    -> padRight width paddedValue
+
+    -- Calculate the width of a value, considering the terminal width
+    valueWidth :: Integer -> Value -> Int
+    valueWidth width value =
+      let
+        maxValWidth = case value of
+          IntegerValue int -> length (show int)
+          StringValue str  -> length str
+          BoolValue bool   -> length (show bool)
+          NullValue        -> length "NULL"
+      in
+        min (fromIntegral width) maxValWidth
+
+    -- Pad a string to the left with spaces to reach a specified width
+    padLeft :: Int -> String -> String
+    padLeft width str = replicate (width - length str) ' ' ++ str
+
+    -- Pad a string to the right with spaces to reach a specified width
+    padRight :: Int -> String -> String
+    padRight width str = str ++ replicate (width - length str) ' '
+  in
+    -- Create the table header and rows
+    let
+      header = formatRow (map (\(Column name _) -> StringValue name) columns)
+      separator = "|" ++ joinWithSeparator "|" (map (`replicate` '-') maxColumnWidths) ++ "|\n"
+      body = concatMap formatRow rows
+    in
+      separator ++ header ++ separator ++ body ++ separator
+
+-- Function to transpose a list of lists
+transposeRows :: [[a]] -> [[a]]
+transposeRows [] = []
+transposeRows ([]:_) = []
+transposeRows xss = [head' | (head':_) <- xss] : transposeRows [tail' | (_:tail') <- xss]

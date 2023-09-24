@@ -52,8 +52,6 @@ executables:
     - extra
     - repline
     - terminal-size
-
-executables:
   fp2023-select-more:
     main:                Main.hs
     source-dirs:         app2

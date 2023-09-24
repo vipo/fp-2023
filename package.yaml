@@ -52,6 +52,18 @@ executables:
     - extra
     - repline
     - terminal-size
+  fp2023-select-more:
+    main:                Main.hs
+    source-dirs:         app2
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - fp2023
+    - extra
+    - repline
+    - terminal-size
 
 tests:
   fp2023-test:

@@ -41,7 +41,6 @@ findTableByName database tableName = findTableByName' database (lowerCaseString 
 -- 2) implement the function which parses a "select * from ..."
 -- sql statement and extracts a table name from the statement
 parseSelectAllStatement :: String -> Either ErrorMessage TableName
-parseSelectAllStatement :: String -> Either ErrorMessage TableName
 parseSelectAllStatement "" = Left "Empty input"
 parseSelectAllStatement selectStatement1 =
     case parseStatement selectStatement1 of

@@ -10,7 +10,6 @@ where
 
 import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
 import InMemoryTables (TableName)
-import Text.Read (Lexeme(String))
 
 type ErrorMessage = String
 

@@ -32,3 +32,11 @@ Please edit [Lib1](src/Lib1.hs) module (only!).
 Run your application: `stack run fp2023-select-all`
 
 Run tests: `stack test`
+
+# Task 2
+
+Please edit [Lib2](src/Lib2.hs) module (only!).
+
+Run your application: `stack run fp2023-select-more`
+
+Add more and run tests: `stack test`

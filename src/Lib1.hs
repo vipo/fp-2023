@@ -50,16 +50,31 @@ parseSelectAllStatement query
 
 -- 3) implement the function which validates tables: checks if
 -- columns match value types, if rows sizes match columns,..
-validateDataFrame :: DataFrame.DataFrame -> Either ErrorMessage ()
+checkTupleMatch :: [(Column, Value)] -> Bool
+checkTupleMatch ((column, value) : _) =
+   case (column, value) of
+    (Column _ IntegerType, IntegerValue _) -> True
+    (Column _ StringType, StringValue _) -> True
+    (Column _ BoolType, BoolValue _) -> True
+    otherwise -> False
+
+zipColumnsAndValues :: DataFrame -> [(Column, Value)]
+zipColumnsAndValues (DataFrame columns rows) = [(col, val) | row <- rows, (col, val) <- zip columns row]
+
+checkRowSizes :: DataFrame -> Bool
+checkRowSizes (DataFrame columns rows) = all (\row -> length row == length columns) rows
+
+validateDataFrame :: DataFrame -> Either ErrorMessage ()
 validateDataFrame dataFrame
-   | 1 == 1 = Right ()
-   | otherwise = Left "The query is wrong"
+  | not (checkRowSizes dataFrame) = Left "Row sizes do not match"
+  | not (checkTupleMatch (zipColumnsAndValues dataFrame)) = Left "Data frame contains type mismatch"
+  | otherwise = Right ()
 
 -- 4) implement the function which renders a given data frame
 -- as ascii-art table (use your imagination, there is no "correct"
 -- answer for this task!), it should respect terminal
 -- width (in chars, provided as the first argument)
-renderDataFrameAsTable :: Integer -> DataFrame.DataFrame -> String
+renderDataFrameAsTable :: Integer -> DataFrame -> String
 renderDataFrameAsTable terminalWidth (DataFrame columns rows) =
   let
     -- Calculate the maximum width for each column

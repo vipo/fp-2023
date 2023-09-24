@@ -26,7 +26,7 @@ ini = liftIO $ putStrLn "Welcome to select-more database! Press [TAB] for auto c
 
 completer :: (Monad m) => WordCompleter m
 completer n = do
-  let names = ["select", "*", "from", "show", "database", "databases"] ++ map fst database
+  let names = ["select", "*", "from", "show", "table", "tables"] ++ map fst database
   return $ Prelude.filter (L.isPrefixOf n) names
 
 -- Evaluation : handle each line user inputs

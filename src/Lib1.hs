@@ -19,13 +19,8 @@ type Database = [(TableName, DataFrame.DataFrame)]
 
 -- Your code modifications go below this comment
 
-
 lowerString :: [Char] -> [Char]
 lowerString str = [ toLower loweredString | loweredString <- str]
-
-joinWithSeparator :: String -> [String] -> String
-joinWithSeparator _ [] = ""
-joinWithSeparator sep (x:xs) = x ++ concatMap (sep ++) xs
 
 isPrefixOf' :: (Eq a) => [a] -> [a] -> Bool
 isPrefixOf' [] _ = True
@@ -77,10 +72,8 @@ validateDataFrame dataFrame
 renderDataFrameAsTable :: Integer -> DataFrame -> String
 renderDataFrameAsTable terminalWidth (DataFrame columns rows) =
   let
-    -- Calculate the maximum width for each column
     maxColumnWidths = map (maximum . map (valueWidth terminalWidth)) (transposeRows rows)
 
-    -- Format a row as a string with proper column widths
     formatRow :: Row -> String
     formatRow row =
       let
@@ -88,7 +81,6 @@ renderDataFrameAsTable terminalWidth (DataFrame columns rows) =
       in
         "|" ++ joinWithSeparator "|" formattedValues ++ "|\n"
 
-    -- Format a single value as a string with a specified width
     formatValue :: Int -> Value -> Column -> String
     formatValue width value (Column _ columnType) =
       let
@@ -103,7 +95,6 @@ renderDataFrameAsTable terminalWidth (DataFrame columns rows) =
           StringType  -> padRight width paddedValue
           BoolType    -> padRight width paddedValue
 
-    -- Calculate the width of a value, considering the terminal width
     valueWidth :: Integer -> Value -> Int
     valueWidth width value =
       let
@@ -115,15 +106,12 @@ renderDataFrameAsTable terminalWidth (DataFrame columns rows) =
       in
         min (fromIntegral width) maxValWidth
 
-    -- Pad a string to the left with spaces to reach a specified width
     padLeft :: Int -> String -> String
     padLeft width str = replicate (width - length str) ' ' ++ str
 
-    -- Pad a string to the right with spaces to reach a specified width
     padRight :: Int -> String -> String
     padRight width str = str ++ replicate (width - length str) ' '
   in
-    -- Create the table header and rows
     let
       header = formatRow (map (\(Column name _) -> StringValue name) columns)
       separator = "|" ++ joinWithSeparator "|" (map (`replicate` '-') maxColumnWidths) ++ "|\n"
@@ -131,8 +119,11 @@ renderDataFrameAsTable terminalWidth (DataFrame columns rows) =
     in
       separator ++ header ++ separator ++ body ++ separator
 
--- Function to transpose a list of lists
 transposeRows :: [[a]] -> [[a]]
 transposeRows [] = []
 transposeRows ([]:_) = []
 transposeRows xss = [head' | (head':_) <- xss] : transposeRows [tail' | (_:tail') <- xss]
+
+joinWithSeparator :: String -> [String] -> String
+joinWithSeparator _ [] = ""
+joinWithSeparator sep (x:xs) = x ++ concatMap (sep ++) xs

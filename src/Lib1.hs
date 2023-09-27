@@ -36,5 +36,28 @@ validateDataFrame _ = error "validateDataFrame ot implemented"
 -- as ascii-art table (use your imagination, there is no "correct"
 -- answer for this task!), it should respect terminal
 -- width (in chars, provided as the first argument)
+
 renderDataFrameAsTable :: Integer -> DataFrame -> String
+renderDataFrameAsTable width df@(DataFrame columns) =
+  let getColumnWidths = map (maximum . map (length . show)) columns
+      totalWidth = sum getColumnWidths + length columns - 1
+      scale = fromIntegral width / fromIntegral totalWidth
+      scaledWidths = map (\w -> round (fromIntegral w * scale)) getColumnWidths
+      header = intercalate " | " $ zipWith padColumn columns scaledWidths
+      separator = replicate (sum scaledWidths + length columns - 1) '-'
+      rows = map (intercalate " | " . zipWith padColumn columns scaledWidths) (map getColumnValues (getRows df))
+  in unlines (header : separator : rows)
+  where
+    getColumnValues (Column _ values) = map show values
+    padColumn (Column name _) width = name ++ replicate (width - length name) ' '
+
+getRows :: DataFrame -> [Row]
+getRows (DataFrame columns) = transpose (map getColumnValues columns)
+
+getColumnValues :: Column -> [Value]
+getColumnValues (Column _ values) = values
+
+transpose :: [[a]] -> [[a]]
+transpose ([]:_) = []
+transpose rows = (map head rows) : transpose (map tail rows)
 renderDataFrameAsTable _ _ = error "renderDataFrameAsTable not implemented"

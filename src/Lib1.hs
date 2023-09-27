@@ -30,7 +30,36 @@ parseSelectAllStatement _ = error "parseSelectAllStatement not implemented"
 -- 3) implement the function which validates tables: checks if
 -- columns match value types, if rows sizes match columns,..
 validateDataFrame :: DataFrame -> Either ErrorMessage ()
-validateDataFrame _ = error "validateDataFrame ot implemented"
+validateDataFrame (DataFrame columns rows) = validateRows rows
+  where
+    validateRow :: [Column] -> [Value] -> Either ErrorMessage ()
+    validateRow [] [] = Right ()
+    validateRow [] (_:_) = Left "Too many values"
+    validateRow (_:_) [] = Left "Not enough values"
+    validateRow (currentColumn:remainingColumns) (currentValue:remainingValues)
+      | isValidType currentColumn currentValue = validateRow remainingColumns remainingValues
+      | otherwise = Left "Incorrect type of the value"
+
+    validateRows :: [Row] -> Either ErrorMessage ()
+    validateRows [] = Right ()
+    validateRows (currentRow:remainingRows) =
+      case validateRow columns currentRow of
+        Left error -> Left error
+        Right _ -> validateRows remainingRows
+
+    isValidType :: Column -> Value -> Bool
+    isValidType _ NullValue = True
+    isValidType (Column _ columnType) value =
+      case checkValueType value of
+        Right valueType -> valueType == columnType
+        _ -> False
+
+    checkValueType :: Value -> Either () ColumnType
+    checkValueType (IntegerValue _) = Right IntegerType
+    checkValueType (StringValue _) = Right StringType
+    checkValueType (BoolValue _) = Right BoolType
+    checkValueType _ = Left ()
+
 
 -- 4) implement the function which renders a given data frame
 -- as ascii-art table (use your imagination, there is no "correct"

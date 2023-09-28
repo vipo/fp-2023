@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
 module Lib1
   ( parseSelectAllStatement,
@@ -39,6 +40,8 @@ findTableByName dataBase tableName = lookup (lowerString tableName) dataBase
 -- sql statement and extracts a table name from the statement
 parseSelectAllStatement :: String -> Either ErrorMessage TableName
 parseSelectAllStatement query
+  | null query = Left "The query is empty"
+  | last query /= ';' = Left "The query does not end with a ;"
   | "select * from" `isPrefixOf'` lowerString query = Right (drop 14 (init query))
   | otherwise = Left "The query is wrong"
 
@@ -72,29 +75,25 @@ validateDataFrame dataFrame
 renderDataFrameAsTable :: Integer -> DataFrame -> String
 renderDataFrameAsTable terminalWidth (DataFrame columns rows) =
   let
-    maxColumnWidths = map (maximum . map (valueWidth terminalWidth)) (transposeRows rows)
-
+    -- Calculate the maximum width for each column (headers + values)
+    maxColumnWidths = map (maximum . map (valueWidth terminalWidth)) (transposeRows (map (\(Column name _) -> StringValue name) columns : rows))
+    
     formatRow :: Row -> String
     formatRow row =
       let
         formattedValues = zipWith3 formatValue maxColumnWidths row columns
       in
-        "|" ++ joinWithSeparator "|" formattedValues ++ "|\n"
-
+        "| " ++ joinWithSeparator " | " formattedValues ++ " |\n"
     formatValue :: Int -> Value -> Column -> String
     formatValue width value (Column _ columnType) =
       let
         paddedValue = case value of
-          IntegerValue int -> padLeft width (show int)
+          IntegerValue int -> padRight width (show int)
           StringValue str  -> padRight width str
           BoolValue bool   -> padRight width (show bool)
           NullValue        -> padRight width "NULL"
       in
-        case columnType of
-          IntegerType -> padLeft width paddedValue
-          StringType  -> padRight width paddedValue
-          BoolType    -> padRight width paddedValue
-
+        paddedValue
     valueWidth :: Integer -> Value -> Int
     valueWidth width value =
       let
@@ -105,16 +104,13 @@ renderDataFrameAsTable terminalWidth (DataFrame columns rows) =
           NullValue        -> length "NULL"
       in
         min (fromIntegral width) maxValWidth
-
-    padLeft :: Int -> String -> String
-    padLeft width str = replicate (width - length str) ' ' ++ str
-
     padRight :: Int -> String -> String
     padRight width str = str ++ replicate (width - length str) ' '
+    maxHeaderWidths = map (\(Column name _) -> length name) columns
+    header = formatRow (map (\(Column name _) -> StringValue name) columns)
+    separator = replicate (sum maxHeaderWidths + 4 * (length maxColumnWidths - 1)) '-' ++ "\n"
   in
     let
-      header = formatRow (map (\(Column name _) -> StringValue name) columns)
-      separator = "|" ++ joinWithSeparator "|" (map (`replicate` '-') maxColumnWidths) ++ "|\n"
       body = concatMap formatRow rows
     in
       separator ++ header ++ separator ++ body ++ separator

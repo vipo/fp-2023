@@ -108,7 +108,7 @@ renderDataFrameAsTable terminalWidth (DataFrame columns rows) =
     padRight width str = str ++ replicate (width - length str) ' '
     maxHeaderWidths = map (\(Column name _) -> length name) columns
     header = formatRow (map (\(Column name _) -> StringValue name) columns)
-    separator = replicate (sum maxHeaderWidths + 4 * (length maxColumnWidths - 1)) '-' ++ "\n"
+    separator = replicate (sum maxHeaderWidths + (4 * length maxColumnWidths) - 1) '-' ++ "\n"
   in
     let
       body = concatMap formatRow rows

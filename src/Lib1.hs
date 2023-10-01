@@ -36,28 +36,39 @@ validateDataFrame _ = error "validateDataFrame ot implemented"
 -- as ascii-art table (use your imagination, there is no "correct"
 -- answer for this task!), it should respect terminal
 -- width (in chars, provided as the first argument)
-
 renderDataFrameAsTable :: Integer -> DataFrame -> String
-renderDataFrameAsTable width df@(DataFrame columns) =
-  let getColumnWidths = map (maximum . map (length . show)) columns
-      totalWidth = sum getColumnWidths + length columns - 1
-      scale = fromIntegral width / fromIntegral totalWidth
-      scaledWidths = map (\w -> round (fromIntegral w * scale)) getColumnWidths
-      header = intercalate " | " $ zipWith padColumn columns scaledWidths
-      separator = replicate (sum scaledWidths + length columns - 1) '-'
-      rows = map (intercalate " | " . zipWith padColumn columns scaledWidths) (map getColumnValues (getRows df))
-  in unlines (header : separator : rows)
+renderDataFrameAsTable _ (DataFrame [] _) = "The Columns list is empty."
+renderDataFrameAsTable _ (DataFrame _ []) = "The Rows list is empty."
+renderDataFrameAsTable maxWidth (DataFrame columns rows) = table
   where
-    getColumnValues (Column _ values) = map show values
-    padColumn (Column name _) width = name ++ replicate (width - length name) ' '
+    numCols = length columns
+    colWidth = (fromIntegral maxWidth - 2) `div` numCols  -- Allow for separators '|'
+    separator = "+" ++ concat (replicate numCols (replicate colWidth '-')) ++ "+\n"
+    headerSeparator = "+" ++ concat (replicate numCols (replicate colWidth '=')) ++ "+\n"
+    columnHeaders = separator ++ "|" ++ formatColumns (fromIntegral colWidth) columns ++ "|\n" ++ headerSeparator
+    rowsWithSeparators = map (\row -> "|" ++ formatRow (fromIntegral colWidth) row ++ "|\n") rows ++ [separator]
+    table = concat (columnHeaders : rowsWithSeparators)
 
-getRows :: DataFrame -> [Row]
-getRows (DataFrame columns) = transpose (map getColumnValues columns)
+formatColumns :: Integer -> [Column] -> String
+formatColumns width = concatMap (formatColumn width)
 
-getColumnValues :: Column -> [Value]
-getColumnValues (Column _ values) = values
+formatColumn :: Integer -> Column -> String
+formatColumn width (Column name _) = padString name width
 
-transpose :: [[a]] -> [[a]]
-transpose ([]:_) = []
-transpose rows = (map head rows) : transpose (map tail rows)
-renderDataFrameAsTable _ _ = error "renderDataFrameAsTable not implemented"
+formatRow :: Integer -> Row -> String
+formatRow width = concatMap (formatValue width)
+
+formatValue :: Integer -> Value -> String
+formatValue width value = case value of
+  NullValue -> format "NULL"
+  IntegerValue n -> format (show n)
+  StringValue s -> format s
+  BoolValue False -> format "False"
+  BoolValue True -> format "True"
+  where
+    format str = padString str width
+
+padString :: String -> Integer -> String
+padString s width
+  | length s <= fromIntegral width = s ++ replicate (fromIntegral width - length s) ' '
+  | otherwise = take (fromIntegral width - 2) s ++ ".."

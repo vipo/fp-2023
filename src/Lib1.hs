@@ -89,7 +89,7 @@ renderDataFrameAsTable terminalWidth (DataFrame columns rows) =
       let
         paddedValue = case value of
           IntegerValue int -> padRight width (show int)
-          StringValue str  -> padRight width str
+          StringValue str  -> padRight width (checkIfNotTooLong str (fromInteger terminalWidth)) -- changed
           BoolValue bool   -> padRight width (show bool)
           NullValue        -> padRight width "NULL"
       in
@@ -99,16 +99,17 @@ renderDataFrameAsTable terminalWidth (DataFrame columns rows) =
       let
         maxValWidth = case value of
           IntegerValue int -> length (show int)
-          StringValue str  -> length str
+          StringValue str  -> checkLength (length str) (fromIntegral width) -- changed
           BoolValue bool   -> length (show bool)
           NullValue        -> length "NULL"
       in
         min (fromIntegral width) maxValWidth
     padRight :: Int -> String -> String
     padRight width str = str ++ replicate (width - length str) ' '
+
     maxHeaderWidths = map (\(Column name _) -> length name) columns
     header = formatRow (map (\(Column name _) -> StringValue name) columns)
-    separator = replicate (sum maxHeaderWidths + (4 * length maxColumnWidths) - 1) '-' ++ "\n"
+    separator = replicate (sum maxColumnWidths + (length maxHeaderWidths * 3) + 1) '-' ++ "\n" -- changing
   in
     let
       body = concatMap formatRow rows
@@ -123,3 +124,14 @@ transposeRows xss = [head' | (head':_) <- xss] : transposeRows [tail' | (_:tail'
 joinWithSeparator :: String -> [String] -> String
 joinWithSeparator _ [] = ""
 joinWithSeparator sep (x:xs) = x ++ concatMap (sep ++) xs
+
+checkIfNotTooLong :: String -> Int -> String
+checkIfNotTooLong str' width'
+  | length str' < div width' 4 = str'
+  | otherwise = take (div width' 4 - 3) str' ++ "..."
+
+
+checkLength :: Int -> Int -> Int
+checkLength lng wdth
+  | lng > div wdth 4 = div wdth 4
+  | otherwise = lng

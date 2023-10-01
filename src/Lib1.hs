@@ -30,7 +30,13 @@ findTableByName ((name, table):rest) tableName =
 -- 2) implement the function which parses a "select * from ..."
 -- sql statement and extracts a table name from the statement
 parseSelectAllStatement :: String -> Either ErrorMessage TableName
-parseSelectAllStatement _ = error "parseSelectAllStatement not implemented"
+parseSelectAllStatement input
+  | null input = Left "Empty input"
+  | last input == ';' = parseSelectAllStatement (init input)
+  | otherwise =
+    case words (map toLower input) of
+      ["select", "*", "from", table] -> Right table
+      _ -> Left "Invalid SELECT statement"
 
 -- 3) implement the function which validates tables: checks if
 -- columns match value types, if rows sizes match columns,..

@@ -178,7 +178,7 @@ renderDataFrameAsTable n (DataFrame columns rows) = header ++ "\n" ++ allRows
         makeSingleRow :: [Int] -> Row -> String
         makeSingleRow widths row = 
             let cells = zipWith makeCell row widths
-            in "|" ++ concat cells ++ "|"
+            in "|" ++ concat cells
 
         makeHCell :: Column -> Int -> String
         makeHCell (Column name _) w = makeCell (StringValue name) w

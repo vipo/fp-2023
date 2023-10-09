@@ -1,3 +1,4 @@
+{-# LANGUAGE InstanceSigs #-}
 
 module Lessons.Lesson05 () where
 

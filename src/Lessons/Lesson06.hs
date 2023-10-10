@@ -3,7 +3,7 @@ module Lessons.Lesson06 () where
 
 import Control.Applicative((<|>), empty, Alternative (some, many))
 
-import Data.Char(isAlphaNum)
+import Data.Char(isAlphaNum, toLower)
 import DataFrame (Column(Column))
 import GHC.Conc (par)
 
@@ -105,6 +105,15 @@ parseCSName = do
 
 parseQuery :: String -> Either ErrorMessage (String, Columns)
 parseQuery inp = runParser parseColumns inp
+
+parseKeyword :: String -> Parser String
+parseKeyword keyword = Parser $ \inp ->
+  if map toLower (take l inp) == map toLower keyword then
+    Right (drop l inp, keyword)
+  else
+    Left $ keyword ++ " expected"
+  where
+    l = length keyword
 
 data Student = Student {
     name :: String,

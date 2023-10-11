@@ -31,6 +31,8 @@ library
       Lessons.Lesson02
       Lessons.Lesson03
       Lessons.Lesson04
+      Lessons.Lesson05
+      Lessons.Lesson06
       Lib1
       Lib2
   other-modules:

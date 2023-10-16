@@ -9,8 +9,8 @@ module Lib2
   )
 where
 
-import DataFrame (DataFrame, Value)
-import InMemoryTables (TableName)
+import DataFrame (DataFrame(..), Column(..), ColumnType(..), Value(..))
+import InMemoryTables (TableName, database)
 import Control.Applicative ( Alternative(empty, (<|>)), optional )
 import Data.Char (toLower, isSpace, isAlphaNum)
 
@@ -112,12 +112,17 @@ instance Monad Parser where
 parseStatement :: String -> Either ErrorMessage ParsedStatement
 parseStatement inp = case runParser parser (dropWhile isSpace inp) of
     Left err1 -> Left err1
-    Right (rest, statement) -> case runParser parseEndOfStatement rest of
-        Left err2 -> Left err2
-        Right _ -> Right statement
+    Right (rest, statement) -> case statement of
+        ShowTableStatement _ -> case runParser parseEndOfStatement rest of
+            Left err2 -> Left err2
+            Right _ -> Right statement
+        ShowTablesStatement -> case runParser parseEndOfStatement rest of
+            Left err2 -> Left err2
+            Right _ -> Right statement
+        _ -> Right statement
     where
         parser :: Parser ParsedStatement
-        parser = parseShowTableStatement
+        parser = parseShowTableStatement <|> parseShowTablesStatement
 
 parseShowTableStatement :: Parser ParsedStatement
 parseShowTableStatement = do
@@ -127,26 +132,21 @@ parseShowTableStatement = do
     _ <- parseWhitespace
     ShowTableStatement <$> parseWord
 
-parseChar :: Char -> Parser Char
-parseChar ch = Parser $ \inp ->
-    case inp of
-        [] -> Left "Empty input"
-        (x:xs) -> if ch == x then Right (xs, ch) else Left ("Expected " ++ [ch])
 
-parseWord :: Parser String
-parseWord = Parser $ \inp ->
-    case takeWhile (\x -> isAlphaNum x || x == '_') inp of
-        [] -> Left "Empty input"
-        xs -> Right (drop (length xs) inp, xs)
+parseShowTablesStatement :: Parser ParsedStatement
+parseShowTablesStatement = do
+    _ <- parseKeyword "show"
+    _ <- parseWhitespace
+    _ <- parseKeyword "tables"
+    pure ShowTablesStatement
 
 parseKeyword :: String -> Parser String
 parseKeyword keyword = Parser $ \inp ->
-    if map toLower (take len inp) == map toLower keyword then
-        Right (drop len inp, keyword)
-    else
-        Left $ "Expected " ++ keyword
-    where
-        len = length keyword
+    case take (length keyword) inp of
+        [] -> Left "Empty input"
+        xs
+            | map toLower xs == map toLower keyword -> Right (drop (length xs) inp, xs)
+            | otherwise -> Left $ "Expected " ++ keyword
 
 parseWhitespace :: Parser String
 parseWhitespace = Parser $ \inp ->
@@ -167,7 +167,26 @@ parseEndOfStatement = do
                 [] -> Right ([], [])
                 _ -> Left "Characters found after end of SQL statement."
 
--- Executes a parsed statemet. Produces a DataFrame. Uses
--- InMemoryTables.databases a source of data.
+parseChar :: Char -> Parser Char
+parseChar ch = Parser $ \inp ->
+    case inp of
+        [] -> Left "Empty input"
+        (x:xs) -> if ch == x then Right (xs, ch) else Left ("Expected " ++ [ch])
+
+parseWord :: Parser String
+parseWord = Parser $ \inp ->
+    case takeWhile (\x -> isAlphaNum x || x == '_') inp of
+        [] -> Left "Empty input"
+        xs -> Right (drop (length xs) inp, xs)
+
+-- Executes a parsed statement. Produces a DataFrame. Uses
+-- InMemoryTables.databases as a source of data.
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
-executeStatement _ = Left "Not implemented: executeStatement"
+executeStatement ShowTablesStatement = Right $ convertToDataFrame (tableNames database)
+executeStatement _ = Left "Not implemented: executeStatement for other statements"
+
+tableNames :: Database -> [TableName]
+tableNames db = map fst db
+
+convertToDataFrame :: [TableName] -> DataFrame
+convertToDataFrame tableNames = DataFrame [Column "Table Name" StringType] (map (\name -> [StringValue name]) tableNames)

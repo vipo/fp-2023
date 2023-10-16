@@ -14,8 +14,36 @@ import Control.Applicative
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
 
--- Keep the type, modify constructors
-data ParsedStatement = ParsedStatement
+data RelationalOperator = EQ | NE | LT | GT | LE | GE
+
+data LogicalOperator = And
+
+data ColumnName = ColumnName String
+
+data WhereCriterion = WhereCriterion ColumnName RelationalOperator Value
+
+data AggregateFunction = Min | Sum
+
+data Aggregate = Aggregate AggregateFunction ColumnName
+
+data SelectData 
+    = SelectColumn ColumnName 
+    | SelectAggregate Aggregate
+
+data SelectQuery = SelectQuery [SelectData]
+
+data WhereClause = WhereClause [(WhereCriterion, Maybe LogicalOperator)]
+
+data ParsedStatement 
+    = SelectStatement 
+        { table :: TableName
+        , query :: SelectQuery
+        , whereClause :: WhereClause
+        } 
+    | ShowTablesStatement 
+        { tables :: [TableName] 
+        }
+
 
 newtype Parser a = Parser {
     runParser :: String -> Either ErrorMessage (String, a)

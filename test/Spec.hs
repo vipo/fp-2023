@@ -54,7 +54,7 @@ main = hspec $ do
       Lib2.parseStatement "SHOW TABLES;" `shouldBe` Right ShowTablesStatement
     it "handles whitespace error in show tables statement" $ do
       Lib2.parseStatement "ShowTables;" `shouldSatisfy` isLeft
-    it "handles unexpected symbols after end of the show table statement" $ do
+    it "handles unexpected symbols after end of the show tables statement" $ do
       Lib2.parseStatement "show tables;a" `shouldSatisfy` isLeft
     it "parses show tables statement with mixed casing" $ do
       Lib2.parseStatement "ShOW taBLeS;" `shouldBe` Right ShowTablesStatement

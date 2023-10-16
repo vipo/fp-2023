@@ -2,6 +2,7 @@ import Data.Either
 import Data.Maybe ()
 import InMemoryTables qualified as D
 import Lib1
+import Lib2
 import Test.Hspec
 
 main :: IO ()
@@ -34,3 +35,18 @@ main = hspec $ do
   describe "Lib1.renderDataFrameAsTable" $ do
     it "renders a table" $ do
       Lib1.renderDataFrameAsTable 100 (snd D.tableEmployees) `shouldSatisfy` not . null
+  describe "Lib2.parseStatement" $ do
+    it "handles empty input" $ do
+      Lib2.parseStatement "" `shouldSatisfy` isLeft
+    it "handles unexpected symbols after end of statement" $ do
+      Lib2.parseStatement "SHOW TABLE Users;a" `shouldSatisfy` isLeft
+    it "handles whitespace error" $ do
+      Lib2.parseStatement "ShowTable Users;" `shouldSatisfy` isLeft
+    it "handles show table without table name" $ do
+      Lib2.parseStatement "SHOW TABLE" `shouldSatisfy` isLeft
+    it "parses show table statement with uppercase" $ do
+      Lib2.parseStatement "SHOW TABLE Users;" `shouldBe` Right (ShowTableStatement "Users")
+    it "parses show table statement with lowercase alphanum and underscore table name" $ do
+      Lib2.parseStatement "show table _organization_123" `shouldBe` Right (ShowTableStatement "_organization_123")
+    it "parses show table statement with mixed casing and whitespace" $ do
+      Lib2.parseStatement "   ShOW   taBlE    Hello_WORLD   ;  " `shouldBe` Right (ShowTableStatement "Hello_WORLD")

@@ -50,3 +50,22 @@ main = hspec $ do
       Lib2.parseStatement "show table _organization_123" `shouldBe` Right (ShowTableStatement "_organization_123")
     it "parses show table statement with mixed casing and whitespace" $ do
       Lib2.parseStatement "   ShOW   taBlE    Hello_WORLD   ;  " `shouldBe` Right (ShowTableStatement "Hello_WORLD")
+    it "parses show tables statement with uppercase" $ do
+      Lib2.parseStatement "SHOW TABLES;" `shouldBe` Right ShowTablesStatement
+    it "handles whitespace error" $ do
+      Lib2.parseStatement "ShowTables;" `shouldSatisfy` isLeft
+    it "handles unexpected symbols after end of the show table statement" $ do
+      Lib2.parseStatement "show tables;a" `shouldSatisfy` isLeft
+    it "parses show tables statement with mixed casing" $ do
+      Lib2.parseStatement "ShOW taBLeS;" `shouldBe` Right ShowTablesStatement
+    it "parses show tables statement with whitespaces" $ do
+      Lib2.parseStatement "show      tables    ;  " `shouldBe` Right ShowTablesStatement
+    it "parses show tables statement lowercase" $ do
+      Lib2.parseStatement "show tables;" `shouldBe` Right ShowTablesStatement
+    it "parses show tables statement Uppercase" $ do
+      Lib2.parseStatement "SHOW TABLES;" `shouldBe` Right ShowTablesStatement
+    it "parses show tables statement with mixed casing and whitespace" $ do
+      Lib2.parseStatement "   ShOW   taBLeS    ;  " `shouldBe` Right ShowTablesStatement
+    it "handles invalid statement" $ do
+      Lib2.parseStatement "shw tables;" `shouldSatisfy` isLeft
+

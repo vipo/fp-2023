@@ -95,4 +95,14 @@ parseStatement _ = Left "Not implemented: parseStatement"
 -- Executes a parsed statemet. Produces a DataFrame. Uses
 -- InMemoryTables.databases a source of data.
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
-executeStatement _ = Left "Not implemented: executeStatement"
+executeStatement (SelectStatement table query whereClause) = do
+    --fetch data
+    --create DataFrame or throw an error
+
+executeStatement (ShowTableStatement table) = do
+    --fetch the table data based on the given name
+    --return a list of column names or throw an error
+
+executeStatement ShowTablesStatement = do
+    --fetch list of available tables from InMemoryTables.databases
+    --return a list of table names or throw an error

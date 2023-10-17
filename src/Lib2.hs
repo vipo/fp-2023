@@ -9,7 +9,7 @@ module Lib2
   )
 where
 
-import DataFrame (DataFrame(..), Column(..), ColumnType(..), Value(..))
+import DataFrame (DataFrame(..), Column(..), ColumnType(..), Value(..), Row(..))
 import InMemoryTables (TableName, database)
 import Control.Applicative ( Alternative(empty, (<|>)), optional )
 import Data.Char (toLower, isSpace, isAlphaNum)
@@ -178,6 +178,103 @@ parseWord = Parser $ \inp ->
     case takeWhile (\x -> isAlphaNum x || x == '_') inp of
         [] -> Left "Empty input"
         xs -> Right (drop (length xs) inp, xs)
+
+--util functions for SELECT statement
+
+getTableByName :: TableName -> Either ErrorMessage DataFrame
+getTableByName tableName =
+  case lookup tableName database of
+    Just table -> Right table
+    Nothing -> Left $ "Table with name '" ++ tableName ++ "' does not exist in the database."
+
+
+findColumnIndex :: ColumnName -> [Column] -> Either ErrorMessage Int
+findColumnIndex columnName columns = findColumnIndex' columnName columns 0 -- Start with index 0
+
+findColumnIndex' :: ColumnName -> [Column] -> Int -> Either ErrorMessage Int
+findColumnIndex' columnName [] _ = Left $ "Column with name '" ++ columnName ++ "' does not exist in the table."
+findColumnIndex' columnName ((Column name _):xs) index
+    | columnName == name = Right index
+    | otherwise          = findColumnIndex' columnName xs (index + 1)
+
+extractColumn :: Int -> [Row] -> [Value]
+extractColumn columnIndex rows = [values !! columnIndex | values <- rows, length values > columnIndex]
+
+findColumnType :: ColumnName -> [Column] -> Either ErrorMessage ColumnType
+findColumnType columnName columns = findColumnType' columnName columns 0
+
+findColumnType' :: ColumnName -> [Column] -> Int -> Either ErrorMessage ColumnType
+findColumnType' _ [] _ = Left "Column does not exist in the table."
+findColumnType' columnName (column@(Column name columnType):xs) index
+    | columnName == name = Right columnType
+    | otherwise          = findColumnType' columnName xs (index+1)
+
+
+minColumnValue :: TableName -> ColumnName -> Either ErrorMessage Value
+minColumnValue tableName columnName =
+    case getTableByName tableName of
+        Left errorMessage -> Left errorMessage
+        Right (DataFrame columns rows) ->
+            case findColumnIndex columnName columns of
+                Left errorMessage -> Left errorMessage
+                Right columnIndex -> findMin $ extractColumn columnIndex rows
+
+    where
+
+        findMin :: [Value] -> Either ErrorMessage Value
+        findMin values = 
+            case filter (/= NullValue) values of
+                [] -> Left "Column has no values."
+                vals -> Right (minimumVals vals)
+
+
+        minimumVals :: [Value] -> Value
+        minimumVals = foldl1 minVal
+
+        minVal :: Value -> Value -> Value
+        minVal (IntegerValue a) (IntegerValue b) = IntegerValue (min a b)
+        minVal (StringValue a) (StringValue b) = StringValue (if a < b then a else b)
+        minVal (BoolValue a) (BoolValue b) = BoolValue (a && b)
+        minVal _ _ = NullValue
+
+
+sumColumnValues :: TableName -> ColumnName -> Either ErrorMessage Value
+sumColumnValues tableName columnName =
+    case getTableByName tableName of
+        Left errorMessage -> Left errorMessage
+        Right (DataFrame columns rows) ->
+            case findColumnType columnName columns of
+                Left errorMessage -> Left errorMessage
+                Right columnType ->
+                    case columnType of
+                        IntegerType -> 
+                            case findColumnIndex columnName columns of
+                                Left errorMessage -> Left errorMessage
+                                Right columnIndex -> findSum $ extractColumn columnIndex rows
+                        _ -> Left "Column type is not Integer."
+
+    where
+
+        findColumnType :: ColumnName -> [Column] -> Either ErrorMessage ColumnType
+        findColumnType columnName columns =
+            case [columnType | (Column name columnType) <- columns, name == columnName] of
+                [] -> Left "Column does not exist."
+                (columnType:_) -> Right columnType
+
+        findSum :: [Value] -> Either ErrorMessage Value
+        findSum values = 
+            case filter (/= NullValue) values of
+                [] -> Left "Column has no values."
+                vals -> Right (sumValues vals)
+
+        sumValues :: [Value] -> Value
+        sumValues = foldl sumValues' (IntegerValue 0)
+
+        sumValues' :: Value -> Value -> Value
+        sumValues' (IntegerValue a) (IntegerValue b) = IntegerValue (a + b)
+        sumValues' (IntegerValue a) NullValue = IntegerValue(a)
+        sumValues' NullValue (IntegerValue b) = IntegerValue(b)
+        sumValues' _ _ = NullValue
 
 -- Executes a parsed statement. Produces a DataFrame. Uses
 -- InMemoryTables.databases as a source of data.

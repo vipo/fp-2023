@@ -225,17 +225,17 @@ minColumnValue tableName columnName =
         findMin values = 
             case filter (/= NullValue) values of
                 [] -> Left "Column has no values."
-                vals -> Right (minimumVals vals)
+                vals -> Right (minValue vals)
 
 
-        minimumVals :: [Value] -> Value
-        minimumVals = foldl1 minVal
+        minValue :: [Value] -> Value
+        minValue = foldl1 minValue'
 
-        minVal :: Value -> Value -> Value
-        minVal (IntegerValue a) (IntegerValue b) = IntegerValue (min a b)
-        minVal (StringValue a) (StringValue b) = StringValue (if a < b then a else b)
-        minVal (BoolValue a) (BoolValue b) = BoolValue (a && b)
-        minVal _ _ = NullValue
+        minValue' :: Value -> Value -> Value
+        minValue' (IntegerValue a) (IntegerValue b) = IntegerValue (min a b)
+        minValue' (StringValue a) (StringValue b) = StringValue (if a < b then a else b)
+        minValue' (BoolValue a) (BoolValue b) = BoolValue (a && b)
+        minValue' _ _ = NullValue
 
 
 sumColumnValues :: TableName -> ColumnName -> Either ErrorMessage Value

@@ -31,9 +31,6 @@ parseStatement input =
       | otherwise -> Left "Unsupported or invalid statement"
     _ -> Left "Unsupported or invalid statement"
 
-
-
-
 -- Executes a parsed statemet. Produces a DataFrame. Uses
 -- InMemoryTables.databases a source of data.
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame

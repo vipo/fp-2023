@@ -9,8 +9,8 @@ module Lib1
   )
 where
 
-import Data.Char ( toLower )
 
+import Data.Char ( toLower )
 import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
 import InMemoryTables (TableName)
 

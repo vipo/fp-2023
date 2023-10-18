@@ -3,6 +3,7 @@
 module Lib2
   ( parseStatement,
     ParsedStatement (..),
+    executeStatement
   )
 where
 

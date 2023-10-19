@@ -60,3 +60,15 @@ main = hspec $ do
     it "should give an error for a non-existent table" $ do
       let parsed = ShowTable "nonexistent"
       executeStatement parsed `shouldBe` Left "Table nonexistent not found"
+  describe "parseStatement for SHOW TABLES" $ do
+    it "should parse 'SHOW TABLES;' correctly" $ do
+      parseStatement "SHOW TABLES;" `shouldBe` Right ShowTables
+
+    it "should return an error for statements without semicolon for SHOW TABLES" $ do
+      parseStatement "SHOW TABLES" `shouldBe` Left "Unsupported or invalid statement"
+
+  describe "executeStatement for SHOW TABLES" $ do
+    it "should list all tables for 'SHOW TABLES;'" $ do
+      let expectedColumns = [Column "Tables" StringType]
+      let expectedRows = map (\(name, _) -> [StringValue name]) D.database
+      executeStatement ShowTables `shouldBe` Right (DataFrame expectedColumns expectedRows)

@@ -1,6 +1,9 @@
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE DataKinds #-}
+{-# OPTIONS_GHC -Wno-overlapping-patterns #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Eta reduce" #-}
 
 module Lib2
   ( parseStatement,
@@ -125,10 +128,10 @@ parseStatement inp = case runParser parser (dropWhile isSpace inp) of
             Right _ -> Right statement
     where
         parser :: Parser ParsedStatement
-        parser = parseShowTableStatement 
+        parser = parseShowTableStatement
                 <|> parseShowTablesStatement
                 <|> parseSelectStatement
-    
+
 -- statement by type parsing
 
 parseShowTableStatement :: Parser ParsedStatement
@@ -235,7 +238,7 @@ parseWhereClause = do
             pure (crit, op)
 
 parseRelationalOperator :: Parser RelationalOperator
-parseRelationalOperator = 
+parseRelationalOperator =
       (parseKeyword "=" >> pure RelEQ)
   <|> (parseKeyword "!=" >> pure RelNE)
   <|> (parseKeyword "<" >> pure RelLT)
@@ -317,14 +320,13 @@ isSelectAggregate (SelectAggregate _) = True
 isSelectAggregate _ = False
 
 
---util functions for SELECT statement
+--util functions
 
 getTableByName :: TableName -> Either ErrorMessage DataFrame
 getTableByName tableName =
   case lookup tableName database of
     Just table -> Right table
     Nothing -> Left $ "Table with name '" ++ tableName ++ "' does not exist in the database."
-
 
 findColumnIndex :: ColumnName -> [Column] -> Either ErrorMessage Int
 findColumnIndex columnName columns = findColumnIndex' columnName columns 0 -- Start with index 0
@@ -360,7 +362,7 @@ minColumnValue tableName columnName =
     where
 
         findMin :: [Value] -> Either ErrorMessage Value
-        findMin values = 
+        findMin values =
             case filter (/= NullValue) values of
                 [] -> Left "Column has no values."
                 vals -> Right (minValue vals)
@@ -371,7 +373,7 @@ minColumnValue tableName columnName =
 
         minValue' :: Value -> Value -> Value
         minValue' (IntegerValue a) (IntegerValue b) = IntegerValue (min a b)
-        minValue' (StringValue a) (StringValue b) = StringValue (if a < b then a else b)
+        minValue' (StringValue a) (StringValue b) = StringValue (min a b)
         minValue' (BoolValue a) (BoolValue b) = BoolValue (a && b)
         minValue' _ _ = NullValue
 
@@ -385,7 +387,7 @@ sumColumnValues tableName columnName =
                 Left errorMessage -> Left errorMessage
                 Right columnType ->
                     case columnType of
-                        IntegerType -> 
+                        IntegerType ->
                             case findColumnIndex columnName columns of
                                 Left errorMessage -> Left errorMessage
                                 Right columnIndex -> findSum $ extractColumn columnIndex rows
@@ -400,7 +402,7 @@ sumColumnValues tableName columnName =
                 (columnType:_) -> Right columnType
 
         findSum :: [Value] -> Either ErrorMessage Value
-        findSum values = 
+        findSum values =
             case filter (/= NullValue) values of
                 [] -> Left "Column has no values."
                 vals -> Right (sumValues vals)
@@ -410,18 +412,73 @@ sumColumnValues tableName columnName =
 
         sumValues' :: Value -> Value -> Value
         sumValues' (IntegerValue a) (IntegerValue b) = IntegerValue (a + b)
-        sumValues' (IntegerValue a) NullValue = IntegerValue(a)
-        sumValues' NullValue (IntegerValue b) = IntegerValue(b)
+        sumValues' (IntegerValue a) NullValue = IntegerValue (a)
+        sumValues' NullValue (IntegerValue b) = IntegerValue (b)
         sumValues' _ _ = NullValue
 
 -- Executes a parsed statement. Produces a DataFrame. Uses
 -- InMemoryTables.databases as a source of data.
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
 executeStatement ShowTablesStatement = Right $ convertToDataFrame (tableNames database)
-executeStatement _ = Left "Not implemented: executeStatement for other statements"
+
+executeStatement (ShowTableStatement tableName) =
+    case getTableByName tableName of
+        Left errorMessage -> Left errorMessage
+        Right df -> Right df
+
+executeStatement (SelectStatement tableName selectQuery maybeWhereClause) =
+    case getTableByName tableName of
+        Left errorMessage -> Left errorMessage
+        Right (DataFrame columns rows) ->
+            case executeSelectQuery selectQuery columns rows maybeWhereClause of
+                Left selectError -> Left selectError
+                Right (selectedColumns, filteredRows) ->
+                    Right $ DataFrame selectedColumns filteredRows
+                    
+executeSelectQuery :: SelectQuery -> [Column] -> [Row] -> Maybe WhereClause -> Either ErrorMessage ([Column], [Row])
+executeSelectQuery selectQuery columns rows maybeWhereClause =
+    case processSelectQuery selectQuery columns of
+        Left selectError -> Left selectError
+        Right (selectedColumns, selectedIndices) ->
+            case maybeWhereClause of
+                Nothing -> Right (selectedColumns, filterRows selectedIndices rows)
+                Just whereClause ->
+                    case filterRowsByWhereClause whereClause selectedIndices rows of
+                        Left filterError -> Left filterError
+                        Right filteredRows -> Right (selectedColumns, filteredRows)
+
+processSelectQuery :: SelectQuery -> [Column] -> Either ErrorMessage ([Column], [Int])
+processSelectQuery [] _ = Left "No columns or aggregates selected in the SELECT statement."
+processSelectQuery selectQuery columns = do
+    (selectedColumns, selectedIndices) <- processSelectQuery' selectQuery columns [] []
+    if null selectedColumns
+        then Left "No valid columns or aggregates selected in the SELECT statement."
+        else Right (selectedColumns, selectedIndices)
+
+processSelectQuery' :: SelectQuery -> [Column] -> [Column] -> [Int] -> Either ErrorMessage ([Column], [Int])
+processSelectQuery' [] _ selectedColumns selectedIndices = Right (reverse selectedColumns, reverse selectedIndices)
+processSelectQuery' (selectData:rest) columns selectedColumns selectedIndices =
+    case selectData of
+        SelectColumn columnName -> do
+            columnIndex <- findColumnIndex columnName columns
+            processSelectQuery' rest columns (columns !! columnIndex : selectedColumns) (columnIndex : selectedIndices)
+        SelectAggregate (Aggregate aggFunc columnName) -> do
+            columnType <- findColumnType columnName columns
+            if isAggregatableColumnType columnType
+                --Will be changed
+                then processSelectQuery' rest columns (createAggregateColumn aggFunc columnName : selectedColumns) selectedIndices
+                else Left "Aggregates can only be applied to Integer columns."
+
+isAggregatableColumnType :: ColumnType -> Bool
+isAggregatableColumnType IntegerType = True
+isAggregatableColumnType _ = False
+
+--TODO: finish aggregate column selecting and where selecting
 
 tableNames :: Database -> [TableName]
 tableNames db = map fst db
 
 convertToDataFrame :: [TableName] -> DataFrame
-convertToDataFrame tableNames = DataFrame [Column "Table Name" StringType] (map (\name -> [StringValue name]) tableNames)
+convertToDataFrame alltableNames = DataFrame [Column "Table Name" StringType] (map (\name -> [StringValue name]) alltableNames)
+
+

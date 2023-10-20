@@ -168,7 +168,7 @@ renderDataFrameAsTable n (DataFrame columns rows) = header ++ "\n" ++ allRows
         makeHeader :: [Column] -> [Int] -> String
         makeHeader allColumns cWidthArray =
             let headerCells = zipWith makeHCell allColumns cWidthArray
-            in "|" ++ concat headerCells
+            in concat headerCells
 
         makeRows :: [Row] -> [Int] -> String
         makeRows rowArray cWidth = 
@@ -178,7 +178,7 @@ renderDataFrameAsTable n (DataFrame columns rows) = header ++ "\n" ++ allRows
         makeSingleRow :: [Int] -> Row -> String
         makeSingleRow widths row = 
             let cells = zipWith makeCell row widths
-            in "|" ++ concat cells
+            in concat cells
 
         makeHCell :: Column -> Int -> String
         makeHCell (Column name _) w = makeCell (StringValue name) w
@@ -192,6 +192,6 @@ renderDataFrameAsTable n (DataFrame columns rows) = header ++ "\n" ++ allRows
                     NullValue-> ""
                 strLen = length cellContent
                 emptySpace = width - strLen - 1
-            in replicate emptySpace ' ' ++ cellContent ++ "|"
+            in "|" ++ cellContent ++ replicate emptySpace ' '
 
     

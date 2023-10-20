@@ -1,5 +1,3 @@
-{-# OPTIONS_GHC -Wno-unused-top-binds #-}
-
 module Lib2
   ( parseStatement,
     executeStatement,
@@ -15,33 +13,28 @@ type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
 
 data ParsedStatement 
-  = ShowTable TableName
-  | ShowTables
-  deriving (Show, Eq)
-  
--- Parses user input into an entity representing a parsed
--- statement
+    = ShowTableStmt TableName
+    | ShowAllTablesStmt
+    deriving (Show, Eq)
+
 parseStatement :: String -> Either ErrorMessage ParsedStatement
-parseStatement input
+parseStatement input 
   | last input /= ';' = Left "Unsupported or invalid statement"
   | otherwise = 
       let cleanedInput = init input
       in case words (map toLower cleanedInput) of
-          ["show", "table", tableName] -> Right $ ShowTable tableName
-          ["show", "tables"] -> Right ShowTables
+          ["show", "table", tableName] -> Right $ ShowTableStmt tableName
+          ["show", "tables"] -> Right ShowAllTablesStmt
           _ -> Left "Unsupported or invalid statement"
 
--- Executes a parsed statemet. Produces a DataFrame. Uses
--- InMemoryTables.databases a source of data.
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
-executeStatement (ShowTable tableName) = 
+executeStatement (ShowTableStmt tableName) = 
   case lookup tableName database of
     Just df -> Right $ DataFrame [Column "Columns" StringType] (map (\(Column name _) -> [StringValue name]) (columns df))
     Nothing -> Left $ "Table " ++ tableName ++ " not found"
-executeStatement ShowTables =
+executeStatement ShowAllTablesStmt =
   Right $ DataFrame [Column "Tables" StringType] 
-                   (map (\(name, _) -> [StringValue name]) database)  -- Produce a DataFrame listing all table names
+                   (map (\(name, _) -> [StringValue name]) database) 
 
--- Extract the columns of a DataFrame
 columns :: DataFrame -> [Column]
 columns (DataFrame cols _) = cols

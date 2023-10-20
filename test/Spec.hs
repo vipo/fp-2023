@@ -37,38 +37,36 @@ main = hspec $ do
     it "renders a table" $ do
       Lib1.renderDataFrameAsTable 100 (snd D.tableEmployees) `shouldSatisfy` not . null
 
-  describe "parseStatement" $ do
-    it "should parse 'SHOW TABLE employees;' correctly" $ do
-      parseStatement "SHOW TABLE employees;" `shouldBe` Right (ShowTable "employees")
-        
-    it "should return an error for unsupported statements" $ do
-      parseStatement "SELECT * FROM employees;" `shouldBe` Left "Unsupported or invalid statement"
-        
-    it "should return an error for malformed statements" $ do
-      parseStatement "SHOW employees;" `shouldBe` Left "Unsupported or invalid statement"
-    
-    it "should return an error for statements without semicolon" $ do
-      parseStatement "SHOW TABLE employees" `shouldBe` Left "Unsupported or invalid statement"
-        
-  describe "executeStatement" $ do
-    it "should list columns for 'SHOW TABLE employees;'" $ do
-      let parsed = ShowTable "employees"
-      let expectedColumns = [Column "Columns" StringType]
-      let expectedRows = [[StringValue "id"], [StringValue "name"], [StringValue "surname"]]
-      executeStatement parsed `shouldBe` Right (DataFrame expectedColumns expectedRows)
-        
-    it "should give an error for a non-existent table" $ do
-      let parsed = ShowTable "nonexistent"
-      executeStatement parsed `shouldBe` Left "Table nonexistent not found"
-  describe "parseStatement for SHOW TABLES" $ do
-    it "should parse 'SHOW TABLES;' correctly" $ do
-      parseStatement "SHOW TABLES;" `shouldBe` Right ShowTables
+  describe "Lib2" $ do
 
-    it "should return an error for statements without semicolon for SHOW TABLES" $ do
-      parseStatement "SHOW TABLES" `shouldBe` Left "Unsupported or invalid statement"
+    describe "parseStatement" $ do
+      it "should parse 'SHOW TABLE employees;' correctly" $ do
+        Lib2.parseStatement "SHOW TABLE employees;" `shouldBe` Right (ShowTableStmt "employees")
+      it "should parse 'SHOW TABLES;' correctly" $ do
+        Lib2.parseStatement "SHOW TABLES;" `shouldBe` Right ShowAllTablesStmt
 
-  describe "executeStatement for SHOW TABLES" $ do
-    it "should list all tables for 'SHOW TABLES;'" $ do
-      let expectedColumns = [Column "Tables" StringType]
-      let expectedRows = map (\(name, _) -> [StringValue name]) D.database
-      executeStatement ShowTables `shouldBe` Right (DataFrame expectedColumns expectedRows)
+      it "should return an error for unsupported statements" $ do
+        Lib2.parseStatement "SELECT * FROM employees;" `shouldBe` Left "Unsupported or invalid statement"
+
+      it "should return an error for malformed statements" $ do
+        Lib2.parseStatement "SHOW employees;" `shouldBe` Left "Unsupported or invalid statement"
+
+      it "should return an error for statements without semicolon" $ do
+        Lib2.parseStatement "SHOW TABLE employees" `shouldBe` Left "Unsupported or invalid statement"
+
+    describe "executeStatement" $ do
+      it "should list columns for 'SHOW TABLE employees;'" $ do
+        let parsed = ShowTableStmt "employees"
+        let expectedColumns = [Column "Columns" StringType]
+        let expectedRows = [[StringValue "id"], [StringValue "name"], [StringValue "surname"]] -- Adjust this based on your actual table structure.
+        Lib2.executeStatement parsed `shouldBe` Right (DataFrame expectedColumns expectedRows)
+
+      it "should give an error for a non-existent table" $ do
+        let parsed = ShowTableStmt "nonexistent"
+        Lib2.executeStatement parsed `shouldBe` Left "Table nonexistent not found"
+
+      it "should list all tables for 'SHOW TABLES;'" $ do
+        let parsed = ShowAllTablesStmt
+        let expectedColumns = [Column "Tables" StringType]
+        let expectedRows = map (\(name, _) -> [StringValue name]) D.database
+        Lib2.executeStatement parsed `shouldBe` Right (DataFrame expectedColumns expectedRows)

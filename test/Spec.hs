@@ -1,9 +1,9 @@
 import Data.Either
 import Data.Maybe ()
+import DataFrame (Column (..), ColumnType (..), DataFrame (..), Value (..))
 import InMemoryTables qualified as D
 import Lib1
 import Lib2
-import DataFrame (DataFrame(..), Column(..), Value(..), ColumnType(..))
 import Test.Hspec
 
 main :: IO ()
@@ -40,23 +40,23 @@ main = hspec $ do
   describe "parseStatement" $ do
     it "should parse 'SHOW TABLE employees;' correctly" $ do
       parseStatement "SHOW TABLE employees;" `shouldBe` Right (ShowTable "employees")
-        
+
     it "should return an error for unsupported statements" $ do
       parseStatement "SELECT * FROM employees;" `shouldBe` Left "Unsupported or invalid statement"
-        
+
     it "should return an error for malformed statements" $ do
       parseStatement "SHOW employees;" `shouldBe` Left "Unsupported or invalid statement"
-    
+
     it "should return an error for statements without semicolon" $ do
       parseStatement "SHOW TABLE employees" `shouldBe` Left "Unsupported or invalid statement"
-        
+
   describe "executeStatement" $ do
     it "should list columns for 'SHOW TABLE employees;'" $ do
       let parsed = ShowTable "employees"
       let expectedColumns = [Column "Columns" StringType]
       let expectedRows = [[StringValue "id"], [StringValue "name"], [StringValue "surname"]]
       executeStatement parsed `shouldBe` Right (DataFrame expectedColumns expectedRows)
-        
+
     it "should give an error for a non-existent table" $ do
       let parsed = ShowTable "nonexistent"
       executeStatement parsed `shouldBe` Left "Table nonexistent not found"
@@ -75,11 +75,11 @@ main = hspec $ do
 
   describe "filterRowsByBoolColumn" $ do
     it "should return list of matching rows" $ do
-      filterRowsByBoolColumn D.tableWithNulls (Column "value" BoolType) True `shouldBe` Right [ [StringValue "a", BoolValue True], [StringValue "b", BoolValue True]]
-      filterRowsByBoolColumn D.tableWithNulls (Column "value" BoolType) False `shouldBe` Right [ [StringValue "b", BoolValue False] ]
-    
+      Lib2.filterRowsByBoolColumn D.tableWithNulls (Column "value" BoolType) True `shouldBe` Right [[StringValue "a", BoolValue True], [StringValue "b", BoolValue True]]
+      Lib2.filterRowsByBoolColumn D.tableWithNulls (Column "value" BoolType) False `shouldBe` Right [[StringValue "b", BoolValue False]]
+
     it "should return Error if Column is not bool type" $ do
-      filterRowsByBoolColumn D.tableWithNulls (Column "flag" StringType) True `shouldBe` Left "Dataframe does not contain column by specified name or column is not of type bool"
-      
+      Lib2.filterRowsByBoolColumn D.tableWithNulls (Column "flag" StringType) True `shouldBe` Left "Dataframe does not contain column by specified name or column is not of type bool"
+
     it "should return Error if Column is not in table" $ do
-      filterRowsByBoolColumn D.tableWithNulls (Column "flagz" StringType) True `shouldBe` Left "Dataframe does not contain column by specified name or column is not of type bool"
+      Lib2.filterRowsByBoolColumn D.tableWithNulls (Column "flagz" StringType) True `shouldBe` Left "Dataframe does not contain column by specified name or column is not of type bool"

@@ -454,33 +454,35 @@ executeSelectQuery tableName selectQuery columns rows maybeWhereClause =
 processSelectQuery :: String -> SelectQuery -> [Column] -> [Row] -> Either ErrorMessage ([Column], [Row])
 processSelectQuery _ [] _ _ = Left "No columns or aggregates selected in the SELECT statement."
 processSelectQuery tableName selectQuery columns rows = do
-    (selectedColumns, selectedIndices) <- processSelectQuery' tableName selectQuery columns [] []
+    (selectedColumns, selectedRows) <- processSelectQuery' tableName selectQuery columns rows [] []
     if null selectedColumns
         then Left "No valid columns or aggregates selected in the SELECT statement."
-        else Right (selectedColumns, filterRows selectedIndices rows)
+        else Right (selectedColumns, selectedRows)
 
-processSelectQuery' :: String -> SelectQuery -> [Column] -> [Column] -> [Int] -> Either ErrorMessage ([Column], [Int])
-processSelectQuery' _ [] _ selectedColumns selectedIndices = Right (reverse selectedColumns, reverse selectedIndices)
-processSelectQuery' tableName (selectData:rest) columns selectedColumns selectedIndices =
+processSelectQuery' :: String -> SelectQuery -> [Column] -> [Row] -> [Column] -> [Int] -> Either ErrorMessage ([Column], [Row])
+processSelectQuery' _ [] _ rows selectedColumns selectedIndices = Right (reverse selectedColumns, filterRows (reverse selectedIndices) rows) 
+processSelectQuery' tableName (selectData:rest) columns rows selectedColumns selectedIndices =
     case selectData of
         SelectColumn columnName -> do
             columnIndex <- findColumnIndex columnName columns
-            processSelectQuery' tableName rest columns (columns !! columnIndex : selectedColumns) (columnIndex : selectedIndices)
+            processSelectQuery' tableName rest columns rows (columns !! columnIndex : selectedColumns) (columnIndex : selectedIndices)
         SelectAggregate (Aggregate aggFunc columnName) -> do
+            columnIndex <- findColumnIndex columnName columns
             columnType <- findColumnType columnName columns
-            if isAggregatableColumnType columnType
-                then processSelectQuery' tableName rest columns (createAggregateColumn tableName aggFunc columnName : selectedColumns) selectedIndices
-                else Left "Aggregates can only be applied to Integer columns."
+            let newColumn = createAggregateColumn aggFunc columnName columnType
+            let newRows = createAggregateRows aggFunc columnIndex rows
+            processSelectQuery' tableName rest columns newRows (newColumn : selectedColumns) (columnIndex : selectedIndices)
 
-isAggregatableColumnType :: ColumnType -> Bool
-isAggregatableColumnType IntegerType = True
-isAggregatableColumnType _ = False
-
-createAggregateColumn :: String -> AggregateFunction -> ColumnName -> Column
-createAggregateColumn tableName aggFunc columnName =
+createAggregateColumn :: AggregateFunction -> ColumnName -> ColumnType -> Column
+createAggregateColumn aggFunc columnName columnType =
     case aggFunc of
-        Min -> Column (show $ minColumnValue tableName columnName) IntegerType
-        Sum -> Column (show $ sumColumnValues tableName columnName) IntegerType
+        Min -> Column ("MIN(" ++ columnName ++ ")") columnType
+        Sum -> Column ("SUM(" ++ columnName ++ ")") IntegerType
+
+createAggregateRows :: AggregateFunction -> Int -> [Row] -> [Row]
+createAggregateRows aggFunc index rows =
+    case aggFunc of
+        Sum -> 
 
 filterRows :: [Int] -> [Row] -> [Row]
 filterRows indices rows = [selectColumns indices row | row <- rows]

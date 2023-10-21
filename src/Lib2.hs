@@ -358,14 +358,11 @@ findColumnType' columnName (column@(Column name columnType):xs) index
     | otherwise          = findColumnType' columnName xs (index+1)
 
 
-minColumnValue :: TableName -> ColumnName -> Either ErrorMessage Value
-minColumnValue tableName columnName =
-    case getTableByName tableName of
-        Left errorMessage -> Left errorMessage
-        Right (DataFrame columns rows) ->
-            case findColumnIndex columnName columns of
-                Left errorMessage -> Left errorMessage
-                Right columnIndex -> findMin $ extractColumn columnIndex rows
+minColumnValue :: Int -> [Row] -> Either ErrorMessage Value
+minColumnValue index rows =
+    case findMin $ extractColumn index rows of
+        Left message -> Left message
+        Right value -> Right value
 
     where
 
@@ -386,20 +383,14 @@ minColumnValue tableName columnName =
         minValue' _ _ = NullValue
 
 
-sumColumnValues :: TableName -> ColumnName -> Either ErrorMessage Value
-sumColumnValues tableName columnName =
-    case getTableByName tableName of
+sumColumnValues :: Int -> [Row] -> ColumnName -> [Column] -> Either ErrorMessage Value
+sumColumnValues index rows columnName columns =
+    case findColumnType columnName columns of
         Left errorMessage -> Left errorMessage
-        Right (DataFrame columns rows) ->
-            case findColumnType columnName columns of
-                Left errorMessage -> Left errorMessage
-                Right columnType ->
-                    case columnType of
-                        IntegerType ->
-                            case findColumnIndex columnName columns of
-                                Left errorMessage -> Left errorMessage
-                                Right columnIndex -> findSum $ extractColumn columnIndex rows
-                        _ -> Left "Column type is not Integer."
+        Right columnType ->
+            case columnType of
+                IntegerType -> findSum $ extractColumn index rows
+                _ -> Left "Column type is not Integer."
 
     where
 
@@ -438,40 +429,40 @@ executeStatement (SelectStatement tableName selectQuery maybeWhereClause) =
     case getTableByName tableName of
         Left errorMessage -> Left errorMessage
         Right (DataFrame columns rows) ->
-            case executeSelectQuery tableName selectQuery columns rows maybeWhereClause of
+            case executeSelectQuery selectQuery columns rows maybeWhereClause of
                 Left selectError -> Left selectError
                 Right (selectedColumns, filteredRows) ->
                     Right $ DataFrame selectedColumns filteredRows
 
-executeSelectQuery :: String -> SelectQuery -> [Column] -> [Row] -> Maybe WhereClause -> Either ErrorMessage ([Column], [Row])
-executeSelectQuery tableName selectQuery columns rows maybeWhereClause =
+executeSelectQuery :: SelectQuery -> [Column] -> [Row] -> Maybe WhereClause -> Either ErrorMessage ([Column], [Row])
+executeSelectQuery selectQuery columns rows maybeWhereClause =
     case maybeWhereClause of
-        Nothing -> processSelectQuery tableName selectQuery columns rows
+        Nothing -> processSelectQuery selectQuery columns rows
         Just whereClause -> do
             filteredRows <- filterRowsByWhereClause whereClause columns rows
-            processSelectQuery tableName selectQuery columns filteredRows
+            processSelectQuery selectQuery columns filteredRows
 
-processSelectQuery :: String -> SelectQuery -> [Column] -> [Row] -> Either ErrorMessage ([Column], [Row])
-processSelectQuery _ [] _ _ = Left "No columns or aggregates selected in the SELECT statement."
-processSelectQuery tableName selectQuery columns rows = do
-    (selectedColumns, selectedRows) <- processSelectQuery' tableName selectQuery columns rows [] []
+processSelectQuery :: SelectQuery -> [Column] -> [Row] -> Either ErrorMessage ([Column], [Row])
+processSelectQuery [] _ _ = Left "No columns or aggregates selected in the SELECT statement."
+processSelectQuery selectQuery columns rows = do
+    (selectedColumns, selectedRows) <- processSelectQuery' selectQuery columns rows [] []
     if null selectedColumns
         then Left "No valid columns or aggregates selected in the SELECT statement."
         else Right (selectedColumns, selectedRows)
 
-processSelectQuery' :: String -> SelectQuery -> [Column] -> [Row] -> [Column] -> [Int] -> Either ErrorMessage ([Column], [Row])
-processSelectQuery' _ [] _ rows selectedColumns selectedIndices = Right (reverse selectedColumns, filterRows (reverse selectedIndices) rows)
-processSelectQuery' tableName (selectData:rest) columns rows selectedColumns selectedIndices =
+processSelectQuery' :: SelectQuery -> [Column] -> [Row] -> [Column] -> [Int] -> Either ErrorMessage ([Column], [Row])
+processSelectQuery' [] _ rows selectedColumns selectedIndices = Right (reverse selectedColumns, filterRows (reverse selectedIndices) rows)
+processSelectQuery' (selectData:rest) columns rows selectedColumns selectedIndices =
     case selectData of
         SelectColumn columnName -> do
             columnIndex <- findColumnIndex columnName columns
-            processSelectQuery' tableName rest columns rows (columns !! columnIndex : selectedColumns) (columnIndex : selectedIndices)
+            processSelectQuery' rest columns rows (columns !! columnIndex : selectedColumns) (columnIndex : selectedIndices)
         SelectAggregate (Aggregate aggFunc columnName) -> do
             columnIndex <- findColumnIndex columnName columns
             columnType <- findColumnType columnName columns
             let newColumn = createAggregateColumn aggFunc columnName columnType
-            let newRows = createAggregateRows tableName columnName aggFunc columnIndex rows
-            processSelectQuery' tableName rest columns newRows (newColumn : selectedColumns) (columnIndex : selectedIndices)
+            let newRows = createAggregateRows columnName columns aggFunc columnIndex rows
+            processSelectQuery' rest columns newRows (newColumn : selectedColumns) (columnIndex : selectedIndices)
 
 createAggregateColumn :: AggregateFunction -> ColumnName -> ColumnType -> Column
 createAggregateColumn aggFunc columnName columnType =
@@ -479,13 +470,13 @@ createAggregateColumn aggFunc columnName columnType =
         Min -> Column ("MIN(" ++ columnName ++ ")") columnType
         Sum -> Column ("SUM(" ++ columnName ++ ")") IntegerType
 
-createAggregateRows :: String -> ColumnName -> AggregateFunction -> Int -> [Row] -> [Row]
-createAggregateRows tableName columnName aggFunc index rows =
+createAggregateRows :: ColumnName -> [Column] -> AggregateFunction -> Int -> [Row] -> [Row]
+createAggregateRows columnName columns aggFunc index rows =
     case aggFunc of
-        Sum -> let sumValue = sumColumnValues tableName columnName in
+        Sum -> let sumValue = sumColumnValues index rows columnName columns in
             case sumValue of
             Right value -> map (updateCell index value) rows
-        Min -> let minValue = minColumnValue tableName columnName in
+        Min -> let minValue = minColumnValue index rows in
             case minValue of
             Right value -> map (updateCell index value) rows
 

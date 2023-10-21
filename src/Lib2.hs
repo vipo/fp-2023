@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wno-unused-top-binds #-}
+
 module Lib2
   ( parseStatement,
     executeStatement,
@@ -17,15 +19,16 @@ data ParsedStatement
     | ShowAllTablesStmt
     deriving (Show, Eq)
 
+keywordMatch :: String -> String -> Bool
+keywordMatch xs ys = map toLower xs == map toLower ys
+
 parseStatement :: String -> Either ErrorMessage ParsedStatement
 parseStatement input 
   | last input /= ';' = Left "Unsupported or invalid statement"
-  | otherwise = 
-      let cleanedInput = init input
-      in case words cleanedInput of
-          ["SHOW", "TABLE", tableName] -> Right $ ShowTableStmt tableName
-          ["SHOW", "TABLES"] -> Right ShowAllTablesStmt
-          _ -> Left "Unsupported or invalid statement"
+  | keywordMatch "SHOW TABLES" (init input) = Right ShowAllTablesStmt
+  | keywordMatch "SHOW TABLE" (unwords $ take 2 (words input)) && length (words input) > 2 = 
+      Right $ ShowTableStmt (filter (/= ';') ((words input) !! 2))
+  | otherwise = Left "Unsupported or invalid statement"
 
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
 executeStatement (ShowTableStmt tableName) = 

@@ -75,11 +75,11 @@ main = hspec $ do
 
   describe "filterRowsByBoolColumn" $ do
     it "should return list of matching rows" $ do
-      Lib2.filterRowsByBoolColumn D.tableWithNulls (Column "value" BoolType) True `shouldBe` Right [[StringValue "a", BoolValue True], [StringValue "b", BoolValue True]]
-      Lib2.filterRowsByBoolColumn D.tableWithNulls (Column "value" BoolType) False `shouldBe` Right [[StringValue "b", BoolValue False]]
+      filterRowsByBoolColumn (snd D.tableWithNulls) (Column "value" BoolType) True `shouldBe` Right DataFrame [Column "flag" StringType, Column "value" BoolType] [[StringValue "a", BoolValue True], [StringValue "b", BoolValue True]]
+      filterRowsByBoolColumn (snd D.tableWithNulls) (Column "value" BoolType) False `shouldBe` Right DataFrame [Column "flag" StringType, Column "value" BoolType] [[StringValue "b", BoolValue False]]
 
     it "should return Error if Column is not bool type" $ do
-      Lib2.filterRowsByBoolColumn D.tableWithNulls (Column "flag" StringType) True `shouldBe` Left "Dataframe does not contain column by specified name or column is not of type bool"
+      filterRowsByBoolColumn (snd D.tableWithNulls) (Column "flag" StringType) True `shouldBe` Left "Dataframe does not contain column by specified name or column is not of type bool"
 
     it "should return Error if Column is not in table" $ do
-      Lib2.filterRowsByBoolColumn D.tableWithNulls (Column "flagz" StringType) True `shouldBe` Left "Dataframe does not contain column by specified name or column is not of type bool"
+      filterRowsByBoolColumn (snd D.tableWithNulls) (Column "flagz" BoolType) True `shouldBe` Left "Dataframe does not contain column by specified name or column is not of type bool"

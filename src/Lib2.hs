@@ -54,16 +54,16 @@ columns (DataFrame cols _) = cols
 
 -- Filter rows based on whether the specified column's value is TRUE or FALSE.
 
-filterRowsByBoolColumn :: (TableName, DataFrame) -> Column -> Bool -> Either ErrorMessage [Row]
-filterRowsByBoolColumn (_, DataFrame cols rows) col bool
+filterRowsByBoolColumn :: DataFrame -> Column -> Bool -> Either ErrorMessage DataFrame
+filterRowsByBoolColumn (DataFrame cols rows) col bool
   | col `elem` cols && getColumnType col == BoolType = Right $ getRowsByBool bool rows
   | otherwise = Left "Dataframe does not contain column by specified name or column is not of type bool"
   where
     getColumnType :: Column -> ColumnType
     getColumnType (Column _ columnType) = columnType
 
-    getRowsByBool :: Bool -> [Row] -> [Row]
-    getRowsByBool boolValue rows = filter (\row -> rowCellAtIndexIsBool boolValue row $ elemIndex col cols) rows
+    getRowsByBool :: Bool -> [Row] -> DataFrame
+    getRowsByBool boolValue rows = DataFrame cols (filter (\row -> rowCellAtIndexIsBool boolValue row $ elemIndex col cols) rows)
 
     rowCellAtIndexIsBool :: Bool -> Row -> Maybe Int -> Bool
     rowCellAtIndexIsBool boolVal row index = case index of

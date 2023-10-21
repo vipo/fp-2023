@@ -460,7 +460,7 @@ processSelectQuery tableName selectQuery columns rows = do
         else Right (selectedColumns, selectedRows)
 
 processSelectQuery' :: String -> SelectQuery -> [Column] -> [Row] -> [Column] -> [Int] -> Either ErrorMessage ([Column], [Row])
-processSelectQuery' _ [] _ rows selectedColumns selectedIndices = Right (reverse selectedColumns, filterRows (reverse selectedIndices) rows) 
+processSelectQuery' _ [] _ rows selectedColumns selectedIndices = Right (reverse selectedColumns, filterRows (reverse selectedIndices) rows)
 processSelectQuery' tableName (selectData:rest) columns rows selectedColumns selectedIndices =
     case selectData of
         SelectColumn columnName -> do
@@ -470,7 +470,7 @@ processSelectQuery' tableName (selectData:rest) columns rows selectedColumns sel
             columnIndex <- findColumnIndex columnName columns
             columnType <- findColumnType columnName columns
             let newColumn = createAggregateColumn aggFunc columnName columnType
-            let newRows = createAggregateRows aggFunc columnIndex rows
+            let newRows = createAggregateRows tableName columnName aggFunc columnIndex rows
             processSelectQuery' tableName rest columns newRows (newColumn : selectedColumns) (columnIndex : selectedIndices)
 
 createAggregateColumn :: AggregateFunction -> ColumnName -> ColumnType -> Column
@@ -479,10 +479,19 @@ createAggregateColumn aggFunc columnName columnType =
         Min -> Column ("MIN(" ++ columnName ++ ")") columnType
         Sum -> Column ("SUM(" ++ columnName ++ ")") IntegerType
 
-createAggregateRows :: AggregateFunction -> Int -> [Row] -> [Row]
-createAggregateRows aggFunc index rows =
+createAggregateRows :: String -> ColumnName -> AggregateFunction -> Int -> [Row] -> [Row]
+createAggregateRows tableName columnName aggFunc index rows =
     case aggFunc of
-        Sum -> 
+        Sum -> let sumValue = sumColumnValues tableName columnName in
+            case sumValue of
+            Right value -> map (updateCell index value) rows
+        Min -> let minValue = minColumnValue tableName columnName in
+            case minValue of
+            Right value -> map (updateCell index value) rows
+
+updateCell :: Int -> a -> [a] -> [a]
+updateCell index newValue row =
+    take index row ++ [newValue] ++ drop (index + 1) row
 
 filterRows :: [Int] -> [Row] -> [Row]
 filterRows indices rows = [selectColumns indices row | row <- rows]

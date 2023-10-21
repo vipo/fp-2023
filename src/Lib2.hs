@@ -4,6 +4,9 @@
 {-# OPTIONS_GHC -Wno-overlapping-patterns #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Eta reduce" #-}
+{-# OPTIONS_GHC -Wno-incomplete-patterns #-}
+{-# HLINT ignore "Redundant return" #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Lib2
   ( parseStatement,
@@ -110,6 +113,11 @@ instance Monad Parser where
             Right (inp2, a) -> case runParser (pbGen a) inp2 of
                 Left err2 -> Left err2
                 Right (inp3, b) -> Right (inp3, b)
+
+instance Ord Value where
+    compare NullValue NullValue = EQ
+    compare NullValue _ = LT
+    compare _ NullValue = GT
 
 -- Parses user input into an entity representing a parsed
 -- statement
@@ -434,26 +442,22 @@ executeStatement (SelectStatement tableName selectQuery maybeWhereClause) =
                 Left selectError -> Left selectError
                 Right (selectedColumns, filteredRows) ->
                     Right $ DataFrame selectedColumns filteredRows
-                    
+
 executeSelectQuery :: SelectQuery -> [Column] -> [Row] -> Maybe WhereClause -> Either ErrorMessage ([Column], [Row])
 executeSelectQuery selectQuery columns rows maybeWhereClause =
-    case processSelectQuery selectQuery columns of
-        Left selectError -> Left selectError
-        Right (selectedColumns, selectedIndices) ->
-            case maybeWhereClause of
-                Nothing -> Right (selectedColumns, filterRows selectedIndices rows)
-                Just whereClause ->
-                    case filterRowsByWhereClause whereClause selectedIndices rows of
-                        Left filterError -> Left filterError
-                        Right filteredRows -> Right (selectedColumns, filteredRows)
+    case maybeWhereClause of
+        Nothing -> processSelectQuery selectQuery columns rows
+        Just whereClause -> do
+            filteredRows <- filterRowsByWhereClause whereClause columns rows
+            processSelectQuery selectQuery columns filteredRows
 
-processSelectQuery :: SelectQuery -> [Column] -> Either ErrorMessage ([Column], [Int])
-processSelectQuery [] _ = Left "No columns or aggregates selected in the SELECT statement."
-processSelectQuery selectQuery columns = do
+processSelectQuery :: SelectQuery -> [Column] -> [Row] -> Either ErrorMessage ([Column], [Row])
+processSelectQuery [] _ _ = Left "No columns or aggregates selected in the SELECT statement."
+processSelectQuery selectQuery columns rows = do
     (selectedColumns, selectedIndices) <- processSelectQuery' selectQuery columns [] []
     if null selectedColumns
         then Left "No valid columns or aggregates selected in the SELECT statement."
-        else Right (selectedColumns, selectedIndices)
+        else Right (selectedColumns, filterRows selectedIndices rows)
 
 processSelectQuery' :: SelectQuery -> [Column] -> [Column] -> [Int] -> Either ErrorMessage ([Column], [Int])
 processSelectQuery' [] _ selectedColumns selectedIndices = Right (reverse selectedColumns, reverse selectedIndices)
@@ -465,7 +469,6 @@ processSelectQuery' (selectData:rest) columns selectedColumns selectedIndices =
         SelectAggregate (Aggregate aggFunc columnName) -> do
             columnType <- findColumnType columnName columns
             if isAggregatableColumnType columnType
-                --Will be changed
                 then processSelectQuery' rest columns (createAggregateColumn aggFunc columnName : selectedColumns) selectedIndices
                 else Left "Aggregates can only be applied to Integer columns."
 
@@ -473,7 +476,62 @@ isAggregatableColumnType :: ColumnType -> Bool
 isAggregatableColumnType IntegerType = True
 isAggregatableColumnType _ = False
 
---TODO: finish aggregate column selecting and where selecting
+createAggregateColumn :: AggregateFunction -> ColumnName -> Column
+createAggregateColumn aggFunc columnName =
+    case aggFunc of
+        Min -> Column ("MIN(" ++ columnName ++ ")") IntegerType
+        Sum -> Column ("SUM(" ++ columnName ++ ")") IntegerType
+
+filterRows :: [Int] -> [Row] -> [Row]
+filterRows indices rows = [selectColumns indices row | row <- rows]
+  where
+    selectColumns :: [Int] -> Row -> Row
+    selectColumns [] _ = []
+    selectColumns (i:rest) row = (row !! i) : selectColumns rest row
+
+
+filterRowsByWhereClause :: WhereClause -> [Column] -> [Row] -> Either ErrorMessage [Row]
+filterRowsByWhereClause [] _ rows = Right rows
+filterRowsByWhereClause ((criterion, _):rest) columns rows = do
+    filteredRows <- filterRowsWithCriterion criterion columns rows []
+    case filteredRows of
+        [] -> Left "No rows satisfy criterion."
+        _ -> filterRowsByWhereClause rest columns filteredRows
+
+filterRowsWithCriterion :: WhereCriterion -> [Column] -> [Row] -> [Row] -> Either ErrorMessage [Row]
+filterRowsWithCriterion _ _ [] acc = Right acc
+filterRowsWithCriterion criterion columns (row:rest) acc =
+    if evaluateCriterion criterion columns row
+        then filterRowsWithCriterion criterion columns rest (row : acc)
+        else filterRowsWithCriterion criterion columns rest acc
+
+evaluateCriterion :: WhereCriterion -> [Column] -> Row -> Bool
+evaluateCriterion (WhereCriterion leftExpr relOp rightExpr) columns row =
+    let
+        leftValue = evaluateExpression leftExpr columns row
+        rightValue = evaluateExpression rightExpr columns row
+    in
+        case relOp of
+            RelEQ -> leftValue == rightValue
+            RelNE -> leftValue /= rightValue
+            RelLT -> leftValue < rightValue
+            RelGT -> leftValue > rightValue
+            RelLE -> leftValue <= rightValue
+            RelGE -> leftValue >= rightValue
+
+evaluateExpression :: Expression -> [Column] -> Row -> Value
+evaluateExpression (ValueExpression value) _ _ = value
+evaluateExpression (ColumnExpression columnName) columns row =
+    case lookupColumnValue columnName columns row of
+        Just value -> value
+        Nothing -> NullValue
+
+lookupColumnValue :: ColumnName -> [Column] -> Row -> Maybe Value
+lookupColumnValue columnName columns row =
+    case findColumnIndex columnName columns of
+        Left _ -> Nothing
+        Right columnIndex -> Just (row !! columnIndex)
+
 
 tableNames :: Database -> [TableName]
 tableNames db = map fst db

@@ -70,8 +70,8 @@ parseSelectAllStatement selectStatement1 =
 
     parseWhitespace :: String -> Either ErrorMessage String
     parseWhitespace s = case span customIsSpace s of
-        ("", rest) -> Left "Expected whitespace"
-        (whitespace, rest) -> Right rest
+        ("", _) -> Left "Expected whitespace"
+        (_, rest) -> Right rest
 
     parseColumnList :: String -> Either ErrorMessage String
     parseColumnList ('*':rest) = Right rest

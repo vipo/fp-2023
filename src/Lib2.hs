@@ -22,9 +22,9 @@ parseStatement input
   | last input /= ';' = Left "Unsupported or invalid statement"
   | otherwise = 
       let cleanedInput = init input
-      in case words (map toLower cleanedInput) of
-          ["show", "table", tableName] -> Right $ ShowTableStmt tableName
-          ["show", "tables"] -> Right ShowAllTablesStmt
+      in case words cleanedInput of
+          ["SHOW", "TABLE", tableName] -> Right $ ShowTableStmt tableName
+          ["SHOW", "TABLES"] -> Right ShowAllTablesStmt
           _ -> Left "Unsupported or invalid statement"
 
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame

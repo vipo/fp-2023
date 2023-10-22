@@ -30,10 +30,16 @@ type Database = [(TableName, DataFrame)]
 
 -- Keep the type, modify constructors
 data ParsedStatement = ParsedStatement
-  | ShowTable String
-  | ShowTables [TableName]
-  | Err ErrorMessage
-  deriving (Show)
+ -- | ShowTable String
+ -- | ShowTables [TableName]
+ -- | Err ErrorMessage
+
+  ShowTable {
+    table :: TableName
+   } 
+   | ShowTables { }
+    deriving (Show, Eq)
+
 --------------------------------------------------------------------------------
 newtype Parser a = Parser {
     runParser :: String -> Either ErrorMessage (a, String)
@@ -88,9 +94,32 @@ char c = Parser charP
 string :: String -> Parser String
 string = mapM char
 
+
+
 ----------------------------------------------------------------------------------
 
-charToString :: Char -> String
+parseStatement :: String -> Either ErrorMessage ParsedStatement
+parseStatement query = case runParser p query of
+    Left err1 -> Left err1
+    Right (statement, rest) -> case statement of
+        ShowTableStatement  -> case runParser stopParseAt rest of
+            Left err2 -> Left err2
+            Right  -> Right statement
+        ShowTableStatement  -> case runParser stopParseAt rest of
+        ShowTablesStatement -> case runParser  rest of
+            Left err2 -> Left err2
+            Right _ -> Right statement
+    where
+        parser :: Parser ParsedStatement
+        parser = parseShowTableStatement 
+                <|> parseShowTablesStatement 
+              
+stopParseAt :: Parser String
+stopParseAt = do
+     <- optional (char ';')
+
+
+{-} charToString :: Char -> String
 charToString c = [c]
 
 toLowerString :: String -> String
@@ -148,3 +177,5 @@ columnsToList (DataFrame columns _) = map getColumnName columns
 getColumnName :: Column -> String
 getColumnName (Column "" _) = ""
 getColumnName (Column columnname _) = columnname
+
+{-}

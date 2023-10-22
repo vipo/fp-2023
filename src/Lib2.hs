@@ -20,24 +20,6 @@ data ParsedStatement
   | AvgColumn TableName String
   deriving (Show, Eq)
 
--- parseStatement :: String -> Either ErrorMessage ParsedStatement
--- parseStatement input
---  | last input /= ';' = Left "Unsupported or invalid statement"
---  | otherwise =
---    let cleanedInput = init input
---        wordsInput = words (map toLower cleanedInput)
---    in case wordsInput of
---     ["show", "table", tableName] -> Right $ ShowTable tableName
---      ["show", "tables"] -> Right ShowTables
---      "select" : rest ->
---        case rest of
---          func : "from" : tableName : []
---            | "avg(" `isPrefixOf` func && ")" `isSuffixOf` func ->
---                let columnName = drop 4 $ init func
---                in Right $ AvgColumn tableName columnName
---          _ -> Left "Unsupported or invalid statement"
---      _ -> Left "Unsupported or invalid statement"
-
 columnNameExists :: TableName -> String -> Bool
 columnNameExists tableName columnName =
   case lookup tableName database of

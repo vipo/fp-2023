@@ -40,6 +40,31 @@ main = hspec $ do
     it "renders a table" $ do
       Lib1.renderDataFrameAsTable 100 (snd D.tableEmployees) `shouldSatisfy` not . null
 
+  describe "Lib2" $ do
+
+    describe "filterRowsByBoolColumn" $ do
+      it "should return list of matching rows" $ do
+        filterRowsByBoolColumn (fst D.tableWithNulls) "value" True `shouldBe` Right (DataFrame [Column "flag" StringType, Column "value" BoolType] [[StringValue "a", BoolValue True], [StringValue "b", BoolValue True]])
+        filterRowsByBoolColumn (fst D.tableWithNulls) "value" False `shouldBe` Right (DataFrame [Column "flag" StringType, Column "value" BoolType] [[StringValue "b", BoolValue False]])
+
+      it "should return Error if Column is not bool type" $ do
+        filterRowsByBoolColumn (fst D.tableWithNulls) "flag" True `shouldBe` Left "Dataframe does not exist or does not contain column by specified name or column is not of type bool"
+
+      it "should return Error if Column is not in table" $ do
+        filterRowsByBoolColumn (fst D.tableWithNulls) "flagz" True `shouldBe` Left "Dataframe does not exist or does not contain column by specified name or column is not of type bool"
+
+    describe "sqlMax" $ do
+      it "should return Left if table does not exist" $ do
+        sqlMax "_uck _e in the a__ tonight" "bonk go to horny jail" `shouldBe` Left "Cannot get max of this value type or table does not exist"
+
+      it "should return Left if column does not exist" $ do
+        sqlMax (fst D.tableEmployees) "bonk" `shouldBe` Left "Cannot get max of this value type or table does not exist"
+
+      it "should return max with correct parameters even if nulls in table" $ do
+        sqlMax (fst D.tableEmployees) "id" `shouldBe` Right (IntegerValue 2)
+        sqlMax (fst D.tableWithNulls) "value" `shouldBe` Right (BoolValue True)
+        sqlMax (fst D.tableWithNulls) "flag" `shouldBe` Right (StringValue "b")
+
   describe "parseStatement in Lib2" $ do
     it "should parse 'SHOW TABLE employees;' correctly" $ do
       parseStatement "SHOW TABLE employees;" `shouldBe` Right (ShowTable "employees")
@@ -52,10 +77,7 @@ main = hspec $ do
 
     it "should return an error for statements without semicolon" $ do
       parseStatement "SHOW TABLE employees" `shouldBe` Left "Unsupported or invalid statement"
-
-    --it "should parse 'select AVG(id) from employees;' correctly" $ do
-    --  parseStatement "select AVG(id) from employees;" `shouldBe` Right (AvgColumn "employees" "id")
-
+      
     it "should return an error for malformed AVG statements" $ do
       parseStatement "select AVG from employees;" `shouldBe` Left "Unsupported or invalid statement"
 
@@ -73,8 +95,6 @@ main = hspec $ do
 
     it "should still match case-insensitive SQL keywords" $ do
       parseStatement "SELECT AVG(id) FROM employees;" `shouldBe` Right (AvgColumn "employees" "id")
-
-
 
   describe "executeStatement in Lib2" $ do
     it "should list columns for 'SHOW TABLE employees;'" $ do

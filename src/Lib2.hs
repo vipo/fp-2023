@@ -12,41 +12,87 @@ module Lib2
 where
 
 import Data.Char (toLower)
-import Data.List (elemIndex, find)
 import Data.Maybe (fromMaybe)
+import Data.List (elemIndex, isPrefixOf, isSuffixOf, find)
 import DataFrame (Column (..), ColumnType (..), DataFrame (..), Row, Value (..))
 import InMemoryTables (TableName, database)
 
 type ErrorMessage = String
 
-type Database = [(TableName, DataFrame)]
-
 data ParsedStatement
-  = ShowTableStmt TableName
-  | ShowAllTablesStmt
+  = ShowTable TableName
+  | ShowTables
+  | AvgColumn TableName String
   deriving (Show, Eq)
 
-keywordMatch :: String -> String -> Bool
-keywordMatch xs ys = map toLower xs == map toLower ys
+columnNameExists :: TableName -> String -> Bool
+columnNameExists tableName columnName =
+  case lookup tableName database of
+    Just df ->
+      any (\(Column name _) -> name == columnName) (columns df)
+    Nothing -> False
 
 parseStatement :: String -> Either ErrorMessage ParsedStatement
 parseStatement input
   | last input /= ';' = Left "Unsupported or invalid statement"
-  | keywordMatch "SHOW TABLES" (init input) = Right ShowAllTablesStmt
-  | keywordMatch "SHOW TABLE" (unwords $ take 2 (words input)) && length (words input) > 2 =
-      Right $ ShowTableStmt (filter (/= ';') ((words input) !! 2))
-  | otherwise = Left "Unsupported or invalid statement"
+  | otherwise =
+      let cleanedInput = init input
+          wordsInput = parseSemiCaseSensitive cleanedInput
+       in case wordsInput of
+            ["show", "table", tableName] ->
+              if tableNameExists tableName
+                then Right $ ShowTable tableName
+                else Left "Table not found"
+            ["show", "tables"] -> Right ShowTables
+            "select" : rest ->
+              case rest of
+                func : "from" : tableName : []
+                  | "avg(" `isPrefixOf` func && ")" `isSuffixOf` func ->
+                      let columnName = drop 4 $ init func
+                       in if tableNameExists tableName && columnNameExists tableName columnName
+                            then Right $ AvgColumn tableName columnName
+                            else Left "Unsupported or invalid statement"
+                _ -> Left "Unsupported or invalid statement"
+            _ -> Left "Unsupported or invalid statement"
+
+parseSemiCaseSensitive :: String -> [String]
+parseSemiCaseSensitive statement = convertedStatement
+  where
+    keywords = ["select", "from", "where", "show", "table", "tables"]
+    splitStatement = words statement
+    convertedStatement = map wordToLowerSensitive splitStatement
+
+    wordToLowerSensitive :: String -> String
+    wordToLowerSensitive word
+      | map toLower word `elem` keywords = map toLower word
+      | "avg(" `isPrefixOf` map toLower word && ")" `isSuffixOf` word = "avg(" ++ drop 4 (init word) ++ ")"
+      | otherwise = word
+
+tableNameExists :: TableName -> Bool
+tableNameExists name = any (\(tableName, _) -> tableName == name) database
 
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
-executeStatement (ShowTableStmt tableName) =
+executeStatement (ShowTable tableName) =
   case lookup tableName database of
     Just df -> Right $ DataFrame [Column "Columns" StringType] (map (\(Column name _) -> [StringValue name]) (columns df))
     Nothing -> Left $ "Table " ++ tableName ++ " not found"
-executeStatement ShowAllTablesStmt =
-  Right $
-    DataFrame
-      [Column "Tables" StringType]
-      (map (\(name, _) -> [StringValue name]) database)
+executeStatement ShowTables =
+  Right $ DataFrame [Column "Tables" StringType] (map (\(name, _) -> [StringValue name]) database)
+executeStatement (AvgColumn tableName columnName) =
+  case lookup tableName database of
+    Just df@(DataFrame cols rows) ->
+      case findColumnIndex columnName df of
+        Just columnIndex ->
+          let values = map (\row -> getColumnValue columnIndex row) rows
+              validIntValues = filter isIntegerValue values
+           in if null validIntValues
+                then Left "No valid integers found in the specified column"
+                else
+                  let sumValues = sumIntValues validIntValues
+                      avg = fromIntegral sumValues / fromIntegral (length validIntValues)
+                   in Right $ DataFrame [Column "AVG" IntegerType] [[IntegerValue (round avg)]]
+        Nothing -> Left $ "Column " ++ columnName ++ " not found in table " ++ tableName
+    Nothing -> Left $ "Table " ++ tableName ++ " not found"
 
 columns :: DataFrame -> [Column]
 columns (DataFrame cols _) = cols
@@ -117,3 +163,17 @@ sqlMax name col
     compValue NullValue (StringValue _) = False
     compValue NullValue (BoolValue _) = False
     compValue _ _ = True
+    
+findColumnIndex :: String -> DataFrame -> Maybe Int
+findColumnIndex columnName (DataFrame columns _) =
+  elemIndex columnName (map (\(Column name _) -> name) columns)
+
+getColumnValue :: Int -> Row -> Value
+getColumnValue columnIndex row = row !! columnIndex
+
+isIntegerValue :: Value -> Bool
+isIntegerValue (IntegerValue _) = True
+isIntegerValue _ = False
+
+sumIntValues :: [Value] -> Integer
+sumIntValues = foldr (\(IntegerValue x) acc -> x + acc) 0

@@ -37,30 +37,27 @@ main = hspec $ do
     it "renders a table" $ do
       Lib1.renderDataFrameAsTable 100 (snd D.tableEmployees) `shouldSatisfy` not . null
 
-
   describe "Lib2" $ do
-  
     describe "parseStatement" $ do
-      
       it "parses SHOW TABLES case-insensitively" $ do
         parseStatement "sHoW tAbLes;" `shouldBe` Right ShowAllTablesStmt
         parseStatement "SHOW TABLES;" `shouldBe` Right ShowAllTablesStmt
         parseStatement "show tables;" `shouldBe` Right ShowAllTablesStmt
-      
+
       it "parses SHOW TABLE <name> case-insensitively for keywords but case-sensitively for table names" $ do
         parseStatement "SHOW TABLE Employees;" `shouldBe` Right (ShowTableStmt "Employees")
         parseStatement "sHoW tAbLe Employees;" `shouldBe` Right (ShowTableStmt "Employees")
         parseStatement "show table Employees;" `shouldBe` Right (ShowTableStmt "Employees")
         parseStatement "SHOW TABLE employees;" `shouldNotBe` Right (ShowTableStmt "Employees")
-      
+
       it "returns error for statements without semicolon" $ do
         parseStatement "SHOW TABLE Employees" `shouldBe` Left "Unsupported or invalid statement"
         parseStatement "sHoW tAbLes" `shouldBe` Left "Unsupported or invalid statement"
-  
+
       it "returns error for unsupported or invalid statements" $ do
         parseStatement "INVALID STATEMENT;" `shouldBe` Left "Unsupported or invalid statement"
         parseStatement "SHOW COLUMNS FROM Employees;" `shouldBe` Left "Unsupported or invalid statement"
-  
+
     describe "executeStatement" $ do
       it "should list columns for 'SHOW TABLE employees;'" $ do
         let parsed = ShowTableStmt "employees"
@@ -80,11 +77,23 @@ main = hspec $ do
 
     describe "filterRowsByBoolColumn" $ do
       it "should return list of matching rows" $ do
-        filterRowsByBoolColumn (snd D.tableWithNulls) (Column "value" BoolType) True `shouldBe` Right (DataFrame [Column "flag" StringType, Column "value" BoolType] [[StringValue "a", BoolValue True], [StringValue "b", BoolValue True]])
-        filterRowsByBoolColumn (snd D.tableWithNulls) (Column "value" BoolType) False `shouldBe` Right (DataFrame [Column "flag" StringType, Column "value" BoolType] [[StringValue "b", BoolValue False]])
+        filterRowsByBoolColumn (fst D.tableWithNulls) "value" True `shouldBe` Right (DataFrame [Column "flag" StringType, Column "value" BoolType] [[StringValue "a", BoolValue True], [StringValue "b", BoolValue True]])
+        filterRowsByBoolColumn (fst D.tableWithNulls) "value" False `shouldBe` Right (DataFrame [Column "flag" StringType, Column "value" BoolType] [[StringValue "b", BoolValue False]])
 
       it "should return Error if Column is not bool type" $ do
-        filterRowsByBoolColumn (snd D.tableWithNulls) (Column "flag" StringType) True `shouldBe` Left "Dataframe does not contain column by specified name or column is not of type bool"
+        filterRowsByBoolColumn (fst D.tableWithNulls) "flag" True `shouldBe` Left "Dataframe does not contain column by specified name or column is not of type bool"
 
       it "should return Error if Column is not in table" $ do
-        filterRowsByBoolColumn (snd D.tableWithNulls) (Column "flagz" BoolType) True `shouldBe` Left "Dataframe does not contain column by specified name or column is not of type bool"
+        filterRowsByBoolColumn (fst D.tableWithNulls) "flagz" True `shouldBe` Left "Dataframe does not contain column by specified name or column is not of type bool"
+
+    describe "sqlMax" $ do
+      it "should return Left if table does not exist" $ do
+        sqlMax "_uck _e in the a__ tonight" "bonk go to horny jail" `shouldBe` Left "Cannot get max of this value type or table does not exist"
+
+      it "should return Left if column does not exist" $ do
+        sqlMax (fst D.tableEmployees) "bonk" `shouldBe` Left "Cannot get max of this value type or table does not exist"
+
+      it "should return max with correct parameters even if nulls in table" $ do
+        sqlMax (fst D.tableEmployees) "id" `shouldBe` Right (IntegerValue 2)
+        sqlMax (fst D.tableWithNulls) "value" `shouldBe` Right (BoolValue True)
+        sqlMax (fst D.tableWithNulls) "flag" `shouldBe` Right (StringValue "b")

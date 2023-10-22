@@ -62,7 +62,7 @@ parseStatement input
                 func : "from" : tableName : []
                   | "avg(" `isPrefixOf` func && ")" `isSuffixOf` func ->
                       let columnName = drop 4 $ init func
-                       in if tableNameExists tableName
+                       in if tableNameExists tableName && columnNameExists tableName columnName
                             then Right $ AvgColumn tableName columnName
                             else Left "Unsupported or invalid statement"
                 _ -> Left "Unsupported or invalid statement"
@@ -71,7 +71,7 @@ parseStatement input
 parseSemiCaseSensitive :: String -> [String]
 parseSemiCaseSensitive statement = convertedStatement
   where
-    keywords = ["select", "from", "where"]
+    keywords = ["select", "from", "where", "show", "table", "tables"]
     splitStatement = words statement
     convertedStatement = map wordToLowerSensitive splitStatement
 

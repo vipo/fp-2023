@@ -81,10 +81,10 @@ main = hspec $ do
         filterRowsByBoolColumn (fst D.tableWithNulls) "value" False `shouldBe` Right (DataFrame [Column "flag" StringType, Column "value" BoolType] [[StringValue "b", BoolValue False]])
 
       it "should return Error if Column is not bool type" $ do
-        filterRowsByBoolColumn (fst D.tableWithNulls) "flag" True `shouldBe` Left "Dataframe does not contain column by specified name or column is not of type bool"
+        filterRowsByBoolColumn (fst D.tableWithNulls) "flag" True `shouldBe` Left "Dataframe does not exist or does not contain column by specified name or column is not of type bool"
 
       it "should return Error if Column is not in table" $ do
-        filterRowsByBoolColumn (fst D.tableWithNulls) "flagz" True `shouldBe` Left "Dataframe does not contain column by specified name or column is not of type bool"
+        filterRowsByBoolColumn (fst D.tableWithNulls) "flagz" True `shouldBe` Left "Dataframe does not exist or does not contain column by specified name or column is not of type bool"
 
     describe "sqlMax" $ do
       it "should return Left if table does not exist" $ do

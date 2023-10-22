@@ -24,12 +24,13 @@ import Lib1 (renderDataFrameAsTable, findTableByName)
 import Data.List (isPrefixOf)
 import Data.Maybe (fromMaybe)
 import Text.ParserCombinators.ReadP (get)
+--import Control.Applicative (optional)
 
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
 
 -- Keep the type, modify constructors
-data ParsedStatement = ParsedStatement
+data ParsedStatement =
  -- | ShowTable String
  -- | ShowTables [TableName]
  -- | Err ErrorMessage
@@ -79,7 +80,7 @@ class (Applicative f) => Alternative f where
           some_v = (:) <$> v <*> many_v
 
 instance Alternative Parser where
-  empty = fail ""
+  empty = fail "empty"
   (Parser x) <|> (Parser y) = Parser $ \s ->
     case x s of
       Right x -> Right x
@@ -94,6 +95,13 @@ char c = Parser charP
 string :: String -> Parser String
 string = mapM char
 
+optional :: Parser a -> Parser (Maybe a)
+optional p = do
+  result <- p
+  return (Just result)
+  <|> return Nothing
+
+
 
 
 ----------------------------------------------------------------------------------
@@ -101,25 +109,62 @@ string = mapM char
 parseStatement :: String -> Either ErrorMessage ParsedStatement
 parseStatement query = case runParser p query of
     Left err1 -> Left err1
-    Right (statement, rest) -> case statement of
-        ShowTableStatement  -> case runParser stopParseAt rest of
+    Right (query, rest) -> case query of
+        ShowTable _ -> case runParser stopParseAt rest of
+          Left err2 -> Left err2
+          Right _ -> Right query
+        ShowTables -> case runParser stopParseAt rest of
             Left err2 -> Left err2
-            Right  -> Right statement
-        ShowTableStatement  -> case runParser stopParseAt rest of
-        ShowTablesStatement -> case runParser  rest of
-            Left err2 -> Left err2
-            Right _ -> Right statement
+            Right _ -> Right query
     where
-        parser :: Parser ParsedStatement
-        parser = parseShowTableStatement 
-                <|> parseShowTablesStatement 
-              
+        p :: Parser ParsedStatement
+        p = showTablesParser
+   --            <|> showTableParser
+
+parseKeyword :: String -> Parser String
+parseKeyword keyword = Parser $ \inp ->
+    case take (length keyword) inp of
+        [] -> Left "Empty input"
+        xs
+            | map toLower xs == map toLower keyword -> Right (drop (length xs) inp, xs)
+            | otherwise -> Left $ "Expected " ++ keyword
+
+showTablesParser :: Parser ParsedStatement
+showTablesParser = do
+    _ <- parseKeyword "show "
+    _ <- parseKeyword "tables"
+    pure ShowTables
+
+executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
+executeStatement ShowTables = Right (createTablesDataFrame (findTableNames ))
+executeStatement _ = Left "Not implemented: executeStatement for other statements"
+
+findTableNames :: [TableName] 
+findTableNames = findTuples InMemoryTables.database
+
+findTuples :: Database -> [TableName]
+findTuples [] = []
+findTuples db = map firstFromTuple db
+
+firstFromTuple :: (TableName, DataFrame) -> TableName
+firstFromTuple = fst
+
+createTablesDataFrame :: [TableName] -> DataFrame
+createTablesDataFrame tableNames = DataFrame [Column "Tables" StringType] (map (\name -> [StringValue name]) tableNames)
+
 stopParseAt :: Parser String
-stopParseAt = do
-     <- optional (char ';')
+stopParseAt  = do
+     _ <- optional (char ';')
+     ensureNothingLeft
+     where
+        ensureNothingLeft :: Parser String
+        ensureNothingLeft = Parser $ \inp ->
+            case inp of
+                [] -> Right ([], [])
+                s -> Left ("Characters found after end of SQL statement." ++ s)
 
 
-{-} charToString :: Char -> String
+{-  charToString :: Char -> String
 charToString c = [c]
 
 toLowerString :: String -> String
@@ -176,6 +221,4 @@ columnsToList (DataFrame columns _) = map getColumnName columns
 
 getColumnName :: Column -> String
 getColumnName (Column "" _) = ""
-getColumnName (Column columnname _) = columnname
-
-{-}
+getColumnName (Column columnname _) = columnname -}

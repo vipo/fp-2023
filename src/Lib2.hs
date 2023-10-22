@@ -18,7 +18,7 @@ import DataFrame
 import InMemoryTables (TableName, database)
 import Data.List.NonEmpty (some1, xor)
 import Foreign.C (charIsRepresentable)
-import Data.Char (toLower, GeneralCategory (ParagraphSeparator))
+import Data.Char (toLower, GeneralCategory (ParagraphSeparator), isSpace)
 import qualified InMemoryTables as DataFrame
 import Lib1 (renderDataFrameAsTable, findTableByName)
 import Data.List (isPrefixOf)
@@ -122,18 +122,28 @@ parseStatement query = case runParser p query of
    --            <|> showTableParser
 
 parseKeyword :: String -> Parser String
-parseKeyword keyword = Parser $ \inp ->
-    case take (length keyword) inp of
-        [] -> Left "Empty input"
+parseKeyword keyword = Parser $ \query ->
+    case take (length keyword) query of
+        [] -> Left "Empty input or ; is missing"
         xs
-            | map toLower xs == map toLower keyword -> Right (drop (length xs) inp, xs)
+            | map toLower xs == map toLower keyword -> Right (xs, drop (length xs) query)
             | otherwise -> Left $ "Expected " ++ keyword
 
 showTablesParser :: Parser ParsedStatement
 showTablesParser = do
     _ <- parseKeyword "show "
     _ <- parseKeyword "tables"
+   -- _ <- parseWhitespace
+--    _ <- parseWhitespace  
+    _ <- parseKeyword ";"
+    -- _ <- parseKeyword "tables"  
     pure ShowTables
+
+parseWhitespace :: Parser String
+parseWhitespace = Parser $ \query ->
+    case span isSpace query of
+        (_, "") -> Left $ "Expected whitespace before: " ++ query
+        (rest, whitespace) -> Right (whitespace, rest)
 
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
 executeStatement ShowTables = Right (createTablesDataFrame (findTableNames ))
@@ -154,7 +164,7 @@ createTablesDataFrame tableNames = DataFrame [Column "Tables" StringType] (map (
 
 stopParseAt :: Parser String
 stopParseAt  = do
-     _ <- optional (char ';')
+    -- _ <- optional (parseKeyword ";")
      ensureNothingLeft
      where
         ensureNothingLeft :: Parser String

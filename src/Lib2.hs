@@ -9,7 +9,7 @@ module Lib2
   )
 where
 
-import DataFrame (DataFrame(..), Column(..), ColumnType(..), Value(..), Row(..))
+import DataFrame (DataFrame(..), Column(..), ColumnType(..), Value(..), Row)
 import InMemoryTables (TableName, database)
 import Control.Applicative ( many, some, Alternative(empty, (<|>)), optional )
 import Data.Char (toLower, isSpace, isAlphaNum)
@@ -113,22 +113,15 @@ instance Monad Parser where
 parseStatement :: String -> Either ErrorMessage ParsedStatement
 parseStatement inp = case runParser parser (dropWhile isSpace inp) of
     Left err1 -> Left err1
-    Right (rest, statement) -> case statement of
-        SelectStatement _ _ _ -> case runParser parseEndOfStatement rest of
-            Left err2 -> Left err2
-            Right _ -> Right statement
-        ShowTableStatement _ -> case runParser parseEndOfStatement rest of
-            Left err2 -> Left err2
-            Right _ -> Right statement
-        ShowTablesStatement -> case runParser parseEndOfStatement rest of
-            Left err2 -> Left err2
-            Right _ -> Right statement
+    Right (rest, statement) -> case runParser parseEndOfStatement rest of
+        Left err2 -> Left err2
+        Right _ -> Right statement
     where
         parser :: Parser ParsedStatement
-        parser = parseShowTableStatement 
+        parser = parseShowTableStatement
                 <|> parseShowTablesStatement
                 <|> parseSelectStatement
-    
+
 -- statement by type parsing
 
 parseShowTableStatement :: Parser ParsedStatement
@@ -223,8 +216,7 @@ parseWhereClause = do
     _ <- parseWhitespace
     _ <- parseKeyword "where"
     _ <- parseWhitespace
-    crits <- some (parseCriterionAndOptionalOperator)
-    pure crits
+    some parseCriterionAndOptionalOperator
 
     where
         parseCriterionAndOptionalOperator :: Parser (WhereCriterion, Maybe LogicalOperator)
@@ -235,7 +227,7 @@ parseWhereClause = do
             pure (crit, op)
 
 parseRelationalOperator :: Parser RelationalOperator
-parseRelationalOperator = 
+parseRelationalOperator =
       (parseKeyword "=" >> pure RelEQ)
   <|> (parseKeyword "!=" >> pure RelNE)
   <|> (parseKeyword "<" >> pure RelLT)
@@ -251,11 +243,11 @@ parseExpression = (ValueExpression <$> parseValue) <|> (ColumnExpression <$> par
 
 parseWhereCriterion :: Parser WhereCriterion
 parseWhereCriterion = do
-    leftExpr <- parseExpression <|> (Parser $ \_ -> Left "Missing left-hand expression in criterion.")
+    leftExpr <- parseExpression <|> Parser (\_ -> Left "Missing left-hand expression in criterion.")
     _ <- optional parseWhitespace
-    op <- parseRelationalOperator <|> (Parser $ \_ -> Left "Missing relational operator.")
+    op <- parseRelationalOperator <|> Parser (\_ -> Left "Missing relational operator.")
     _ <- optional parseWhitespace
-    rightExpr <- parseExpression <|> (Parser $ \_ -> Left "Missing right-hand expression in criterion.")
+    rightExpr <- parseExpression <|> Parser (\_ -> Left "Missing right-hand expression in criterion.")
     pure $ WhereCriterion leftExpr op rightExpr
 
 -- column list parsing
@@ -275,11 +267,9 @@ parseSelectData :: Parser SelectData
 parseSelectData = tryParseAggregate <|> tryParseColumn
   where
     tryParseAggregate = do
-        agg <- parseAggregate
-        pure $ SelectAggregate agg
+        SelectAggregate <$> parseAggregate
     tryParseColumn = do
-        columnName <- parseWord
-        pure $ SelectColumn columnName
+        SelectColumn <$> parseWord
 
 -- aggregate parsing
 
@@ -360,7 +350,7 @@ minColumnValue tableName columnName =
     where
 
         findMin :: [Value] -> Either ErrorMessage Value
-        findMin values = 
+        findMin values =
             case filter (/= NullValue) values of
                 [] -> Left "Column has no values."
                 vals -> Right (minValue vals)
@@ -371,7 +361,7 @@ minColumnValue tableName columnName =
 
         minValue' :: Value -> Value -> Value
         minValue' (IntegerValue a) (IntegerValue b) = IntegerValue (min a b)
-        minValue' (StringValue a) (StringValue b) = StringValue (if a < b then a else b)
+        minValue' (StringValue a) (StringValue b) = StringValue (min a b)
         minValue' (BoolValue a) (BoolValue b) = BoolValue (a && b)
         minValue' _ _ = NullValue
 
@@ -385,7 +375,7 @@ sumColumnValues tableName columnName =
                 Left errorMessage -> Left errorMessage
                 Right columnType ->
                     case columnType of
-                        IntegerType -> 
+                        IntegerType ->
                             case findColumnIndex columnName columns of
                                 Left errorMessage -> Left errorMessage
                                 Right columnIndex -> findSum $ extractColumn columnIndex rows
@@ -400,7 +390,7 @@ sumColumnValues tableName columnName =
                 (columnType:_) -> Right columnType
 
         findSum :: [Value] -> Either ErrorMessage Value
-        findSum values = 
+        findSum values =
             case filter (/= NullValue) values of
                 [] -> Left "Column has no values."
                 vals -> Right (sumValues vals)
@@ -410,8 +400,8 @@ sumColumnValues tableName columnName =
 
         sumValues' :: Value -> Value -> Value
         sumValues' (IntegerValue a) (IntegerValue b) = IntegerValue (a + b)
-        sumValues' (IntegerValue a) NullValue = IntegerValue(a)
-        sumValues' NullValue (IntegerValue b) = IntegerValue(b)
+        sumValues' (IntegerValue a) NullValue = IntegerValue a
+        sumValues' NullValue (IntegerValue b) = IntegerValue b
         sumValues' _ _ = NullValue
 
 -- Executes a parsed statement. Produces a DataFrame. Uses
@@ -421,7 +411,7 @@ executeStatement ShowTablesStatement = Right $ convertToDataFrame (tableNames da
 executeStatement _ = Left "Not implemented: executeStatement for other statements"
 
 tableNames :: Database -> [TableName]
-tableNames db = map fst db
+tableNames = map fst
 
 convertToDataFrame :: [TableName] -> DataFrame
 convertToDataFrame tableNames = DataFrame [Column "Table Name" StringType] (map (\name -> [StringValue name]) tableNames)

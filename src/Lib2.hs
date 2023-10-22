@@ -1,67 +1,121 @@
-{-# OPTIONS_GHC -Wno-overlapping-patterns #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
 module Lib2
   ( parseStatement,
     executeStatement,
-    filterRowsByBoolColumn,
-    ParsedStatement (..),
+    ParsedStatement(..),
   )
 where
 
 import Data.Char (toLower)
-import Data.List (elemIndex)
-import DataFrame (Column (..), ColumnType (..), DataFrame (..), Row, Value (..))
+import DataFrame (DataFrame (..), Column (..), ColumnType (..), Value (..), Row)
 import InMemoryTables (TableName, database)
+import Data.List (elemIndex, isPrefixOf, isSuffixOf)
+
 
 type ErrorMessage = String
 
-type Database = [(TableName, DataFrame)]
+data ParsedStatement
+  = ShowTable TableName
+  | ShowTables
+  | AvgColumn TableName String
+  deriving (Show, Eq)
 
+--parseStatement :: String -> Either ErrorMessage ParsedStatement
+--parseStatement input
+--  | last input /= ';' = Left "Unsupported or invalid statement"
+--  | otherwise =
+--    let cleanedInput = init input
+--        wordsInput = words (map toLower cleanedInput)
+--    in case wordsInput of
+--     ["show", "table", tableName] -> Right $ ShowTable tableName
+--      ["show", "tables"] -> Right ShowTables
+--      "select" : rest ->
+--        case rest of
+--          func : "from" : tableName : [] 
+--            | "avg(" `isPrefixOf` func && ")" `isSuffixOf` func ->
+--                let columnName = drop 4 $ init func
+--                in Right $ AvgColumn tableName columnName
+--          _ -> Left "Unsupported or invalid statement"
+--      _ -> Left "Unsupported or invalid statement"
 
-data ParsedStatement 
-    = ShowTableStmt TableName
-    | ShowAllTablesStmt
-    deriving (Show, Eq)
+columnNameExists :: TableName -> String -> Bool
+columnNameExists tableName columnName =
+  case lookup tableName database of
+    Just df ->
+      any (\(Column name _) -> name == columnName) (columns df)
+    Nothing -> False
 
-keywordMatch :: String -> String -> Bool
-keywordMatch xs ys = map toLower xs == map toLower ys
 
 parseStatement :: String -> Either ErrorMessage ParsedStatement
-parseStatement input 
+parseStatement input
   | last input /= ';' = Left "Unsupported or invalid statement"
+  | otherwise =
+    let cleanedInput = init input
+        lowerInput = map toLower cleanedInput
+        wordsInput = words lowerInput
+    in case wordsInput of
+      ["show", "table", tableName] ->
+        if tableNameExists tableName
+          then Right $ ShowTable tableName
+          else Left "Table not found"
+      ["show", "tables"] -> Right ShowTables
+      "select" : rest ->
+        case rest of
+          func : "from" : tableName : [] 
+            | "avg(" `isPrefixOf` func && ")" `isSuffixOf` func ->
+                let columnName = drop 4 $ init func
+                in if tableNameExists tableName
+                   then Right $ AvgColumn tableName columnName
+                   else Left "Unsupported or invalid statement"
+          _ -> Left "Unsupported or invalid statement"
+      _ -> Left "Unsupported or invalid statement"
 
-  | keywordMatch "SHOW TABLES" (init input) = Right ShowAllTablesStmt
-  | keywordMatch "SHOW TABLE" (unwords $ take 2 (words input)) && length (words input) > 2 = 
-      Right $ ShowTableStmt (filter (/= ';') ((words input) !! 2))
-  | otherwise = Left "Unsupported or invalid statement"
+
+
+tableNameExists :: TableName -> Bool
+tableNameExists name = any (\(tableName, _) -> tableName == name) database
+
 
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
-executeStatement (ShowTableStmt tableName) = 
+executeStatement (ShowTable tableName) =
   case lookup tableName database of
     Just df -> Right $ DataFrame [Column "Columns" StringType] (map (\(Column name _) -> [StringValue name]) (columns df))
     Nothing -> Left $ "Table " ++ tableName ++ " not found"
-executeStatement ShowAllTablesStmt =
-  Right $ DataFrame [Column "Tables" StringType] 
-                   (map (\(name, _) -> [StringValue name]) database) 
+executeStatement ShowTables =
+  Right $ DataFrame [Column "Tables" StringType] (map (\(name, _) -> [StringValue name]) database)
+executeStatement (AvgColumn tableName columnName) =
+  case lookup tableName database of
+    Just df@(DataFrame cols rows) ->
+      case findColumnIndex columnName df of
+        Just columnIndex ->
+          let values = map (\row -> getColumnValue columnIndex row) rows
+              validIntValues = filter isIntegerValue values
+          in
+            if null validIntValues
+              then Left "No valid integers found in the specified column"
+              else
+                let sumValues = sumIntValues validIntValues
+                    avg = fromIntegral sumValues / fromIntegral (length validIntValues)
+                in
+                  Right $ DataFrame [Column "AVG" IntegerType] [[IntegerValue (round avg)]]
+        Nothing -> Left $ "Column " ++ columnName ++ " not found in table " ++ tableName
+    Nothing -> Left $ "Table " ++ tableName ++ " not found"
 
 columns :: DataFrame -> [Column]
 columns (DataFrame cols _) = cols
 
--- Filter rows based on whether the specified column's value is TRUE or FALSE.
+findColumnIndex :: String -> DataFrame -> Maybe Int
+findColumnIndex columnName (DataFrame columns _) =
+  elemIndex columnName (map (\(Column name _) -> name) columns)
 
-filterRowsByBoolColumn :: DataFrame -> Column -> Bool -> Either ErrorMessage DataFrame
-filterRowsByBoolColumn (DataFrame cols rows) col bool
-  | col `elem` cols && getColumnType col == BoolType = Right $ getRowsByBool bool rows
-  | otherwise = Left "Dataframe does not contain column by specified name or column is not of type bool"
-  where
-    getColumnType :: Column -> ColumnType
-    getColumnType (Column _ columnType) = columnType
+getColumnValue :: Int -> Row -> Value
+getColumnValue columnIndex row = row !! columnIndex
 
-    getRowsByBool :: Bool -> [Row] -> DataFrame
-    getRowsByBool boolValue rows = DataFrame cols (filter (\row -> rowCellAtIndexIsBool boolValue row $ elemIndex col cols) rows)
+isIntegerValue :: Value -> Bool
+isIntegerValue (IntegerValue _) = True
+isIntegerValue _ = False
 
-    rowCellAtIndexIsBool :: Bool -> Row -> Maybe Int -> Bool
-    rowCellAtIndexIsBool boolVal row index = case index of
-      Just index -> row !! index == BoolValue boolVal
-      Nothing -> False
+sumIntValues :: [Value] -> Integer
+sumIntValues = foldr (\(IntegerValue x) acc -> x + acc) 0
+

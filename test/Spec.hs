@@ -1,9 +1,9 @@
 import Data.Either
 import Data.Maybe ()
+import DataFrame (Column (..), ColumnType (..), DataFrame (..), Value (..))
 import InMemoryTables qualified as D
 import Lib1
 import Lib2
-import DataFrame (DataFrame(..), Column(..), Value(..), ColumnType(..))
 import Test.Hspec
 
 main :: IO ()
@@ -41,7 +41,6 @@ main = hspec $ do
       Lib1.renderDataFrameAsTable 100 (snd D.tableEmployees) `shouldSatisfy` not . null
 
   describe "Lib2" $ do
-
     describe "filterRowsByBoolColumn" $ do
       it "should return list of matching rows" $ do
         filterRowsByBoolColumn (fst D.tableWithNulls) "value" True `shouldBe` Right (DataFrame [Column "flag" StringType, Column "value" BoolType] [[StringValue "a", BoolValue True], [StringValue "b", BoolValue True]])
@@ -77,7 +76,7 @@ main = hspec $ do
 
     it "should return an error for statements without semicolon" $ do
       parseStatement "SHOW TABLE employees" `shouldBe` Left "Unsupported or invalid statement"
-      
+
     it "should return an error for malformed AVG statements" $ do
       parseStatement "select AVG from employees;" `shouldBe` Left "Unsupported or invalid statement"
 
@@ -85,7 +84,7 @@ main = hspec $ do
       parseStatement "select AVG(id) from employees" `shouldBe` Left "Unsupported or invalid statement"
 
     it "should parse 'select AVG(id) from employees;' correctly with case-sensitive table and column names" $ do
-      parseStatement "select AVG(id) from employees;" `shouldBe` Right (AvgColumn "employees" "id")
+      parseStatement "select AVG(id) from employees;" `shouldBe` Right (AvgColumn "employees" "id" Nothing)
 
     it "should not match incorrect case for table names" $ do
       parseStatement "select AVG(id) from EMPLOYEES;" `shouldBe` Left "Unsupported or invalid statement"
@@ -94,7 +93,19 @@ main = hspec $ do
       parseStatement "select AVG(iD) from employees;" `shouldBe` Left "Unsupported or invalid statement"
 
     it "should still match case-insensitive SQL keywords" $ do
-      parseStatement "SELECT AVG(id) FROM employees;" `shouldBe` Right (AvgColumn "employees" "id")
+      parseStatement "SELECT AVG(id) FROM employees;" `shouldBe` Right (AvgColumn "employees" "id" Nothing)
+
+    it
+      "should parse 'selEct MaX(id) From employees;' correctly with case-sensitive table and column names"
+      parseStatement
+      "selEct MaX(id) From employees;"
+      `shouldBe` Right (MaxColumn "employees" "id" Nothing)
+
+    it
+      "should parse 'selEct MaX(flag) From flags wheRe value iS tRue;'"
+      parseStatement
+      "selEct MaX(flag) From flags wheRe value iS tRue;"
+      `shouldBe` Right (MaxColumn "flags" "flag" (Just (IsValueBool True "flags" "value")))
 
   describe "executeStatement in Lib2" $ do
     it "should list columns for 'SHOW TABLE employees;'" $ do
@@ -123,10 +134,9 @@ main = hspec $ do
   describe "executeStatement for AvgColumn in Lib2" $ do
     it "should calculate the average of the 'id' column in 'employees'" $
       let parsed = AvgColumn "employees" "id"
-          expectedValue = 2  -- Change the expected value to 2
-      in
-      executeStatement parsed `shouldBe` Right (DataFrame [Column "AVG" IntegerType] [[IntegerValue expectedValue]])
-  
+          expectedValue = 2 -- Change the expected value to 2
+       in executeStatement parsed `shouldBe` Right (DataFrame [Column "AVG" IntegerType] [[IntegerValue expectedValue]])
+
     it "should give an error for a non-existent table" $ do
       let parsed = AvgColumn "nonexistent" "id"
       executeStatement parsed `shouldBe` Left "Table nonexistent not found"

@@ -109,18 +109,18 @@ parseStatement query = case runParser p query of
         ShowTables -> case runParser stopParseAt rest of
             Left err2 -> Left err2
             Right _ -> Right query
-    where
-        p :: Parser ParsedStatement
+    where  
+        p :: Parser ParsedStatement   
         p = showTablesParser
                <|> showTableParser
 
-queryStatementParser :: String -> Parser String
+queryStatementParser :: String -> Parser String   
 queryStatementParser queryStatement = Parser $ \query ->
     case take (length queryStatement) query of
-        [] -> Left "Empty input"
+        [] -> Left "Expected ;"
         xs
             | map toLower xs == map toLower queryStatement -> Right (xs, drop (length xs) query)
-            | otherwise -> Left $ "Expected " ++ queryStatement
+            | otherwise -> Left $ "Expected " ++ queryStatement ++ " or query contains unnecessary words"
 
 showTablesParser :: Parser ParsedStatement
 showTablesParser = do
@@ -168,7 +168,7 @@ dropWhiteSpaces (x:xs)
 whitespaceParser :: Parser String
 whitespaceParser = Parser $ \query ->
     case span isSpace query of
-        ("", _) -> Left $ "Expected whitespace before " ++ query
+        ("", _) -> Left $ "Expected whitespace before " ++  query
         (rest, whitespace) -> Right (rest, whitespace)
 
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame

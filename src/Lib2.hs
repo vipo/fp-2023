@@ -129,6 +129,9 @@ instance Ord Value where
     compare NullValue NullValue = EQ
     compare NullValue _ = LT
     compare _ NullValue = GT
+    compare (IntegerValue a) (IntegerValue b) = compare a b
+    compare (StringValue a) (StringValue b) = compare a b
+    compare (BoolValue a) (BoolValue b) = compare a b
 
 -- Parses user input into an entity representing a parsed
 -- statement

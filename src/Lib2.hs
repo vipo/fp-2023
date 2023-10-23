@@ -8,6 +8,7 @@ module Lib2
     executeStatement,
     filterRowsByBoolColumn,
     sqlMax,
+    WhereClause (..),
     ParsedStatement (..),
   )
 where

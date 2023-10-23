@@ -357,6 +357,7 @@ findColumnType' columnName (column@(Column name columnType):xs) index
     | columnName == name = Right columnType
     | otherwise          = findColumnType' columnName xs (index+1)
 
+
 minColumnValue :: Int -> [Row] -> Either ErrorMessage Value
 minColumnValue index rows =
     case findMin $ extractColumn index rows of
@@ -380,6 +381,7 @@ minColumnValue index rows =
         minValue' (StringValue a) (StringValue b) = StringValue (min a b)
         minValue' (BoolValue a) (BoolValue b) = BoolValue (a && b)
         minValue' _ _ = NullValue
+
 
 sumColumnValues :: Int -> [Row] -> ColumnName -> [Column] -> Either ErrorMessage Value
 sumColumnValues index rows columnName columns =
@@ -538,3 +540,5 @@ tableNames db = map fst db
 
 convertToDataFrame :: [TableName] -> DataFrame
 convertToDataFrame alltableNames = DataFrame [Column "Table Name" StringType] (map (\name -> [StringValue name]) alltableNames)
+
+

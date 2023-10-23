@@ -24,20 +24,15 @@ import Lib1 (renderDataFrameAsTable, findTableByName)
 import Data.List (isPrefixOf)
 import Data.Maybe (fromMaybe)
 import Text.ParserCombinators.ReadP (get)
---import Control.Applicative (optional)
 
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
 
 -- Keep the type, modify constructors
 data ParsedStatement =
- -- | ShowTable String
- -- | ShowTables [TableName]
- -- | Err ErrorMessage
-
   ShowTable {
     table :: TableName
-   } 
+   }
    | ShowTables { }
     deriving (Show, Eq)
 
@@ -102,8 +97,6 @@ optional p = do
   <|> return Nothing
 
 
-
-
 ----------------------------------------------------------------------------------
 
 parseStatement :: String -> Either ErrorMessage ParsedStatement
@@ -119,37 +112,82 @@ parseStatement query = case runParser p query of
     where
         p :: Parser ParsedStatement
         p = showTablesParser
-   --            <|> showTableParser
+               <|> showTableParser
 
-parseKeyword :: String -> Parser String
-parseKeyword keyword = Parser $ \query ->
-    case take (length keyword) query of
-        [] -> Left "Empty input or ; is missing"
+queryStatementParser :: String -> Parser String
+queryStatementParser queryStatement = Parser $ \query ->
+    case take (length queryStatement) query of
+        [] -> Left "Empty input"
         xs
-            | map toLower xs == map toLower keyword -> Right (xs, drop (length xs) query)
-            | otherwise -> Left $ "Expected " ++ keyword
+            | map toLower xs == map toLower queryStatement -> Right (xs, drop (length xs) query)
+            | otherwise -> Left $ "Expected " ++ queryStatement
 
 showTablesParser :: Parser ParsedStatement
 showTablesParser = do
-    _ <- parseKeyword "show "
-    _ <- parseKeyword "tables"
-   -- _ <- parseWhitespace
---    _ <- parseWhitespace  
-    _ <- parseKeyword ";"
-    -- _ <- parseKeyword "tables"  
+    _ <- queryStatementParser "show"
+    _ <- whitespaceParser
+    _ <- queryStatementParser "tables"
+    _ <- optional whitespaceParser
     pure ShowTables
 
-parseWhitespace :: Parser String
-parseWhitespace = Parser $ \query ->
+showTableParser :: Parser ParsedStatement
+showTableParser = do
+    _ <- queryStatementParser "show"
+    _ <- whitespaceParser
+    _ <- queryStatementParser "table"
+    _ <- whitespaceParser
+    ShowTable <$> tableNameParser
+
+tableNameParser :: Parser TableName 
+tableNameParser = Parser $ \query ->
+  case isValidTableName query of
+    True ->
+      case lookup (dropWhiteSpaces (init query)) InMemoryTables.database of
+      Just _ -> Right (init (dropWhiteSpaces query), ";")
+      Nothing -> Left "Table not found in the database"
+    False -> Left "Query does not end with ; or contains unnecessary words after table name"
+
+isValidTableName :: String -> Bool
+isValidTableName str =
+  if last str == ';' then (case isOneWord str of
+  True -> True
+  False -> False) else False
+
+isOneWord :: String -> Bool
+isOneWord [] = True
+isOneWord (x:xs)
+  | x /= ' ' = isOneWord xs
+  | x == ' ' = dropWhiteSpaces xs == ";"
+
+dropWhiteSpaces :: String -> String
+dropWhiteSpaces [] = []
+dropWhiteSpaces (x:xs)
+  | x /= ' ' = [x] ++ dropWhiteSpaces xs
+  | otherwise = dropWhiteSpaces xs
+
+whitespaceParser :: Parser String
+whitespaceParser = Parser $ \query ->
     case span isSpace query of
-        (_, "") -> Left $ "Expected whitespace before: " ++ query
-        (rest, whitespace) -> Right (whitespace, rest)
+        ("", _) -> Left $ "Expected whitespace before " ++ query
+        (rest, whitespace) -> Right (rest, whitespace)
 
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
-executeStatement ShowTables = Right (createTablesDataFrame (findTableNames ))
+executeStatement ShowTables = Right (createTablesDataFrame findTableNames)
+executeStatement  (ShowTable table) = Right (createColumnsDataFrame (columnsToList (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database))) table)
 executeStatement _ = Left "Not implemented: executeStatement for other statements"
 
-findTableNames :: [TableName] 
+createColumnsDataFrame :: [TableName] -> TableName -> DataFrame
+createColumnsDataFrame columnNames columnTableName = DataFrame [Column columnTableName StringType] (map (\name ->  [StringValue name]) columnNames)
+
+columnsToList :: DataFrame -> [TableName]
+columnsToList (DataFrame [] []) = []
+columnsToList (DataFrame columns _) = map getColumnName columns
+
+getColumnName :: Column -> TableName
+getColumnName (Column "" _) = ""
+getColumnName (Column columnname _) = columnname 
+
+findTableNames :: [TableName]
 findTableNames = findTuples InMemoryTables.database
 
 findTuples :: Database -> [TableName]
@@ -164,71 +202,12 @@ createTablesDataFrame tableNames = DataFrame [Column "Tables" StringType] (map (
 
 stopParseAt :: Parser String
 stopParseAt  = do
-    -- _ <- optional (parseKeyword ";")
-     ensureNothingLeft
+     _ <- optional whitespaceParser
+     _ <- queryStatementParser ";"
+     checkAfterQuery
      where
-        ensureNothingLeft :: Parser String
-        ensureNothingLeft = Parser $ \inp ->
-            case inp of
+        checkAfterQuery :: Parser String
+        checkAfterQuery = Parser $ \query ->
+            case query of
                 [] -> Right ([], [])
-                s -> Left ("Characters found after end of SQL statement." ++ s)
-
-
-{-  charToString :: Char -> String
-charToString c = [c]
-
-toLowerString :: String -> String
-toLowerString [] = ""
-toLowerString (x:xs) = charToString (toLower x) ++ toLowerString xs
-
-findTableNames :: [TableName]
-findTableNames = findTuples InMemoryTables.database
-
-findTuples :: Database -> [TableName]
-findTuples [] = []
-findTuples db = map firstFromTuple db
-
-firstFromTuple :: (TableName, DataFrame) -> TableName
-firstFromTuple = fst
-
-parserToStatement :: Parser String -> String -> ParsedStatement
-parserToStatement p s = case runParser p s of
-  Right (parsedStr, _) -> ShowTable parsedStr -- Here, you should pattern match the parsed string to create a ParsedStatement
-  Left err -> Err err -- Handle the case where parsing fails
-
-parseTableName :: String -> Parser String
-parseTableName str = do
-  case lookup str InMemoryTables.database of
-    Just _ -> string str
-    Nothing -> string "Table not found in the database"
-
--- Parses user input into an entity representing a parsed
--- statement
-parseStatement :: String -> Either ErrorMessage ParsedStatement
-parseStatement query
-  | toLowerString query == "show tables;" = Right (ShowTables findTableNames)--(ShowTable )--(parserToStatement (string query))--Right (string query)
-  | "show table" `isPrefixOf` toLowerString query = Right (parserToStatement (parseTableName (drop 11 (init query))) (drop 11 (init query)))
-  | otherwise = Left "FAILED."
-
--- Executes a parsed statement. Produces a DataFrame. Uses
--- InMemoryTables.databases a source of data.
-
-executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
-executeStatement (ShowTable tableName) = Right (createColumnsDataFrame (columnsToList (fromMaybe (DataFrame [] []) (lookup tableName InMemoryTables.database))) tableName)
-executeStatement (ShowTables tableNames) = Right (createTablesDataFrame tableNames)
-executeStatement (Err err) = Left err
-
-
-createTablesDataFrame :: [TableName] -> DataFrame
-createTablesDataFrame tableNames = DataFrame [Column "Tables" StringType] (map (\name -> [StringValue name]) tableNames)
-
-createColumnsDataFrame :: [String] -> String -> DataFrame
-createColumnsDataFrame columnNames columnTableName = DataFrame [Column columnTableName StringType] (map (\name ->  [StringValue name]) columnNames)
-
-columnsToList :: DataFrame -> [String]
-columnsToList (DataFrame [] []) = []
-columnsToList (DataFrame columns _) = map getColumnName columns
-
-getColumnName :: Column -> String
-getColumnName (Column "" _) = ""
-getColumnName (Column columnname _) = columnname -}
+                s -> Left ("Characters found after ;" ++ s)

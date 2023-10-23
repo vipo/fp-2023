@@ -11,7 +11,13 @@
 module Lib2
   ( parseStatement,
     executeStatement,
-    ParsedStatement (..)
+    ParsedStatement (..),
+    SelectData (..),
+    Aggregate (..),
+    AggregateFunction (..),
+    RelationalOperator (..),
+    WhereCriterion (..),
+    Expression (..)
   )
 where
 

@@ -4,7 +4,7 @@ import InMemoryTables qualified as D
 import Lib1
 import Lib2
 import Test.Hspec
-import DataFrame (DataFrame(DataFrame))
+import DataFrame
 
 main :: IO ()
 main = hspec $ do
@@ -71,13 +71,14 @@ main = hspec $ do
       Lib2.parseStatement "shw tables;" `shouldSatisfy` isLeft
   describe "Lib2.executeStatement" $ do
     it "executes show tables statement" $ do
-      Lib2.executeStatement "SHOW TABLES;" `shouldBe` Right DataFrame
+      Lib2.executeStatement ShowTablesStatement `shouldSatisfy` isRight
     it "executes show table <name> statement" $ do
-      Lib2.executeStatement "SHOW TABLE employees;" `shouldBe` Right (snd D.tableEmployees)
+      Lib2.executeStatement ShowTableStatement {table = "employees"} `shouldSatisfy` isRight
     it "executes simple select statement" $ do
-      Lib2.executeStatement "SELECT id from employees;" `shouldBe` Right DataFrame
-    it "executes select statement with a where clause" $ do
-      Lib2.executeStatement "SELECT id from employees where name ='Ed';" `shouldBe` Right DataFrame
+      Lib2.executeStatement SelectStatement {table = "employees", query = [SelectColumn "id"], whereClause = Nothing} `shouldSatisfy` isRight
     it "executes select statement with an aggregate" $ do
-      Lib2.executeStatement "SELECT min(id) From employees;" `shouldBe` Right DataFrame
+      Lib2.executeStatement SelectStatement {table = "employees", query = [SelectAggregate (Aggregate Min "id")], whereClause = Nothing} `shouldSatisfy` isRight
+    it "executes select statement with a where clause" $ do
+      Lib2.executeStatement SelectStatement {table = "employees", query = [SelectColumn "id"], whereClause = Just [(WhereCriterion (ColumnExpression "name") RelEQ (ValueExpression (StringValue "Ed")),Nothing)]} `shouldSatisfy` isRight
+
 

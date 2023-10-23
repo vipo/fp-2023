@@ -145,7 +145,7 @@ parseSelectStatement :: Parser ParsedStatement
 parseSelectStatement = do
     _ <- parseKeyword "SELECT"
     _ <- parseWhitespace
-    selectData <- parseSelectData `sepBy` (parseChar ',' *> parseWhitespace)
+    selectData <- parseSelectData `sepBy` (parseChar ',' *> optional parseWhitespace)
     _ <- parseWhitespace
     _ <- parseKeyword "FROM"
     _ <- parseWhitespace

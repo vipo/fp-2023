@@ -286,8 +286,11 @@ parseAggregateFunction = parseMin <|> parseSum
 parseAggregate :: Parser Aggregate
 parseAggregate = do
     func <- parseAggregateFunction
+    _ <- optional parseWhitespace
     _ <- parseChar '('
+    _ <- optional parseWhitespace
     columnName <- parseWord
+    _ <- optional parseWhitespace
     _ <- parseChar ')'
     pure $ Aggregate func columnName
 

@@ -23,6 +23,7 @@ data ParsedStatement
   = ShowTable TableName
   | ShowTables
   | AvgColumn TableName String
+  | SelectColumns TableName [String]
   deriving (Show, Eq)
 
 columnNameExists :: TableName -> String -> Bool
@@ -45,15 +46,25 @@ parseStatement input
                 else Left "Table not found"
             ["show", "tables"] -> Right ShowTables
             "select" : rest ->
-              case rest of
-                func : "from" : tableName : []
-                  | "avg(" `isPrefixOf` func && ")" `isSuffixOf` func ->
-                      let columnName = drop 4 $ init func
-                       in if tableNameExists tableName && columnNameExists tableName columnName
-                            then Right $ AvgColumn tableName columnName
-                            else Left "Unsupported or invalid statement"
+              case break (== "from") rest of
+                (columnWords, ["from", tableName]) ->
+                  if "avg(" `isPrefixOf` (head columnWords) && ")" `isSuffixOf` (head columnWords)
+                  then 
+                    let columnName = drop 4 $ init (head columnWords)
+                    in if tableNameExists tableName && columnNameExists tableName columnName
+                       then Right $ AvgColumn tableName columnName
+                       else Left "Unsupported or invalid statement"
+                  else 
+                    let columnString = unwords columnWords
+                        columnNames = map (dropWhile (== ' ')) $ splitByComma columnString
+                    in if tableNameExists tableName && all (columnNameExists tableName) columnNames
+                       then Right $ SelectColumns tableName columnNames
+                       else Left "Unsupported or invalid statement"
                 _ -> Left "Unsupported or invalid statement"
             _ -> Left "Unsupported or invalid statement"
+
+splitByComma :: String -> [String]
+splitByComma = map (dropWhile (== ' ')) . words . map (\c -> if c == ',' then ' ' else c)
 
 parseSemiCaseSensitive :: String -> [String]
 parseSemiCaseSensitive statement = convertedStatement
@@ -93,6 +104,18 @@ executeStatement (AvgColumn tableName columnName) =
                    in Right $ DataFrame [Column "AVG" IntegerType] [[IntegerValue (round avg)]]
         Nothing -> Left $ "Column " ++ columnName ++ " not found in table " ++ tableName
     Nothing -> Left $ "Table " ++ tableName ++ " not found"
+executeStatement (SelectColumns tableName columnNames) =
+  case lookup tableName database of
+    Just df@(DataFrame cols rows) -> 
+      case mapM (`findColumnIndex` df) columnNames of
+        Just columnIndices ->
+          let selectedColumns = map (\idx -> cols !! idx) columnIndices
+              selectedRows = map (\row -> map (\idx -> row !! idx) columnIndices) rows
+          in if any (any isNullValue) selectedRows
+             then Left "Error: Null value found in one or more rows"
+             else Right $ DataFrame selectedColumns selectedRows
+        Nothing -> Left $ "One or more columns not found in table " ++ tableName
+    Nothing -> Left $ "Table " ++ tableName ++ " not found"
 
 columns :: DataFrame -> [Column]
 columns (DataFrame cols _) = cols
@@ -121,6 +144,10 @@ isTableInDatabase :: TableName -> Bool
 isTableInDatabase name = case lookup name database of
   Just _ -> True
   Nothing -> False
+
+isNullValue :: Value -> Bool
+isNullValue NullValue = True
+isNullValue _ = False
 
 -- Filter rows based on whether the specified column's value is TRUE or FALSE.
 filterRowsByBoolColumn :: TableName -> String -> Bool -> Either ErrorMessage DataFrame

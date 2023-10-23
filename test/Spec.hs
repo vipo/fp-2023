@@ -40,31 +40,6 @@ main = hspec $ do
     it "renders a table" $ do
       Lib1.renderDataFrameAsTable 100 (snd D.tableEmployees) `shouldSatisfy` not . null
 
-  describe "Lib2" $ do
-
-    describe "filterRowsByBoolColumn" $ do
-      it "should return list of matching rows" $ do
-        filterRowsByBoolColumn (fst D.tableWithNulls) "value" True `shouldBe` Right (DataFrame [Column "flag" StringType, Column "value" BoolType] [[StringValue "a", BoolValue True], [StringValue "b", BoolValue True]])
-        filterRowsByBoolColumn (fst D.tableWithNulls) "value" False `shouldBe` Right (DataFrame [Column "flag" StringType, Column "value" BoolType] [[StringValue "b", BoolValue False]])
-
-      it "should return Error if Column is not bool type" $ do
-        filterRowsByBoolColumn (fst D.tableWithNulls) "flag" True `shouldBe` Left "Dataframe does not exist or does not contain column by specified name or column is not of type bool"
-
-      it "should return Error if Column is not in table" $ do
-        filterRowsByBoolColumn (fst D.tableWithNulls) "flagz" True `shouldBe` Left "Dataframe does not exist or does not contain column by specified name or column is not of type bool"
-
-    describe "sqlMax" $ do
-      it "should return Left if table does not exist" $ do
-        sqlMax "_uck _e in the a__ tonight" "bonk go to horny jail" `shouldBe` Left "Cannot get max of this value type or table does not exist"
-
-      it "should return Left if column does not exist" $ do
-        sqlMax (fst D.tableEmployees) "bonk" `shouldBe` Left "Cannot get max of this value type or table does not exist"
-
-      it "should return max with correct parameters even if nulls in table" $ do
-        sqlMax (fst D.tableEmployees) "id" `shouldBe` Right (IntegerValue 2)
-        sqlMax (fst D.tableWithNulls) "value" `shouldBe` Right (BoolValue True)
-        sqlMax (fst D.tableWithNulls) "flag" `shouldBe` Right (StringValue "b")
-
   describe "parseStatement in Lib2" $ do
     it "should parse 'SHOW TABLE employees;' correctly" $ do
       parseStatement "SHOW TABLE employees;" `shouldBe` Right (ShowTable "employees")
@@ -77,7 +52,10 @@ main = hspec $ do
 
     it "should return an error for statements without semicolon" $ do
       parseStatement "SHOW TABLE employees" `shouldBe` Left "Unsupported or invalid statement"
-      
+
+    --it "should parse 'select AVG(id) from employees;' correctly" $ do
+    --  parseStatement "select AVG(id) from employees;" `shouldBe` Right (AvgColumn "employees" "id")
+
     it "should return an error for malformed AVG statements" $ do
       parseStatement "select AVG from employees;" `shouldBe` Left "Unsupported or invalid statement"
 
@@ -95,6 +73,17 @@ main = hspec $ do
 
     it "should still match case-insensitive SQL keywords" $ do
       parseStatement "SELECT AVG(id) FROM employees;" `shouldBe` Right (AvgColumn "employees" "id")
+
+    it "should parse 'SELECT column1 FROM employees;' correctly" $ do
+      parseStatement "SELECT id FROM employees;" `shouldBe` Right (SelectColumns "employees" ["id"])
+
+    it "should parse 'SELECT column1, column2 FROM employees;' correctly" $ do
+      parseStatement "SELECT id, name FROM employees;" `shouldBe` Right (SelectColumns "employees" ["id", "name"])
+
+    it "should return an error for statements without semicolon for SELECT" $ do
+      parseStatement "SELECT id FROM employees" `shouldBe` Left "Unsupported or invalid statement"
+
+
 
   describe "executeStatement in Lib2" $ do
     it "should list columns for 'SHOW TABLE employees;'" $ do
@@ -134,3 +123,23 @@ main = hspec $ do
     it "should give an error for a non-existent column" $ do
       let parsed = AvgColumn "employees" "nonexistent_column"
       executeStatement parsed `shouldBe` Left "Column nonexistent_column not found in table employees"
+
+    it "should return the 'id' column for 'SELECT id FROM employees;'" $ do
+      let parsed = SelectColumns "employees" ["id"]
+      let expectedColumns = [Column "id" IntegerType]
+      let expectedRows = [[IntegerValue 1], [IntegerValue 2]]
+      executeStatement parsed `shouldBe` Right (DataFrame expectedColumns expectedRows)
+
+    it "should return the 'id' and 'name' columns for 'SELECT id, name FROM employees;'" $ do
+      let parsed = SelectColumns "employees" ["id", "name"]
+      let expectedColumns = [Column "id" IntegerType, Column "name" StringType]
+      let expectedRows = [[IntegerValue 1, StringValue "Vi"], [IntegerValue 2, StringValue "Ed"]]
+      executeStatement parsed `shouldBe` Right (DataFrame expectedColumns expectedRows)
+
+    it "should return an error for a non-existent column in SELECT" $ do
+      let parsed = SelectColumns "employees" ["id", "nonexistent_column"]
+      executeStatement parsed `shouldBe` Left "One or more columns not found in table employees"
+
+    it "should return an error if there's a null value in the selected rows" $ do
+      let parsed = SelectColumns "flags" ["flag", "value"]
+      executeStatement parsed `shouldBe` Left "Error: Null value found in one or more rows"

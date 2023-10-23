@@ -4,6 +4,7 @@ import InMemoryTables qualified as D
 import Lib1
 import Lib2
 import Test.Hspec
+import DataFrame
 
 
 main :: IO ()
@@ -89,3 +90,14 @@ main = hspec $ do
         (StringValue "b")),Nothing),(WhereCriterion (ValueExpression (StringValue "b")) RelLT (ValueExpression (StringValue "c")),Nothing)]})
     it "handles SELECT statement with multiple WHERE criterion that compare strings and columns" $ do
       Lib2.parseStatement "SELECT a FROM table WHERE a='aa' AND aaa!='b' AND 'b'<aaa;" `shouldBe` Right (SelectStatement {table = "table", query = [SelectColumn "a"], whereClause = Just [(WhereCriterion (ColumnExpression "a") RelEQ (ValueExpression (StringValue "aa")),Just And),(WhereCriterion (ColumnExpression "aaa") RelNE (ValueExpression (StringValue "b")),Just And),(WhereCriterion (ValueExpression (StringValue "b")) RelLT (ColumnExpression "aaa"),Nothing)]})
+  describe "Lib2.executeStatement" $ do
+    it "executes show tables statement" $ do
+      Lib2.executeStatement ShowTablesStatement `shouldSatisfy` isRight
+    it "executes show table <name> statement" $ do
+      Lib2.executeStatement ShowTableStatement {table = "employees"} `shouldSatisfy` isRight
+    it "executes simple select statement" $ do
+      Lib2.executeStatement SelectStatement {table = "employees", query = [SelectColumn "id"], whereClause = Nothing} `shouldSatisfy` isRight
+    it "executes select statement with an aggregate" $ do
+      Lib2.executeStatement SelectStatement {table = "employees", query = [SelectAggregate (Aggregate Min "id")], whereClause = Nothing} `shouldSatisfy` isRight
+    it "executes select statement with a where clause" $ do
+      Lib2.executeStatement SelectStatement {table = "employees", query = [SelectColumn "id"], whereClause = Just [(WhereCriterion (ColumnExpression "name") RelEQ (ValueExpression (StringValue "Ed")),Nothing)]} `shouldSatisfy` isRight

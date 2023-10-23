@@ -23,6 +23,7 @@ data ParsedStatement
   = ShowTable TableName
   | ShowTables
   | AvgColumn TableName String
+  | SelectColumns TableName [String]
   | MaxColumn TableName String
   deriving (Show, Eq)
 
@@ -38,20 +39,30 @@ mapStatementType :: [String] -> Either ErrorMessage ParsedStatement
 mapStatementType statement = case statement of
   ["show", "table", tableName] ->
     if tableNameExists tableName
-      then Right $ ShowTable tableName
+      then Right (ShowTable tableName)
       else Left "Table not found"
   ["show", "tables"] -> Right ShowTables
   "select" : rest -> parseAggregateFunction rest
   _ -> Left "Unsupported or invalid statement"
 
 parseAggregateFunction :: [String] -> Either ErrorMessage ParsedStatement
-parseAggregateFunction [func, "from", tableName]
-  | "avg(" `isPrefixOf` func && ")" `isSuffixOf` func && tableAndColumnExists = Right $ AvgColumn tableName columnName
-  | "max(" `isPrefixOf` func && ")" `isSuffixOf` func && tableAndColumnExists = Right $ MaxColumn tableName columnName
-  | otherwise = Left "Unsupported or invalid statement"
+parseAggregateFunction statement = parseFunctionBody
   where
-    columnName = drop 4 $ init func
+    (columnWords, [_, tableName]) = break (== "from") statement
+    columnName = drop 4 $ init (head columnWords)
     tableAndColumnExists = tableNameExists tableName && columnNameExists tableName columnName
+    columnString = unwords columnWords
+    columnNames = map (dropWhile (== ' ')) $ splitByComma columnString
+
+    parseFunctionBody :: Either ErrorMessage ParsedStatement
+    parseFunctionBody
+      | "avg(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && tableAndColumnExists = Right (AvgColumn tableName columnName)
+      | "max(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && tableAndColumnExists = Right $ MaxColumn tableName columnName
+      | tableNameExists tableName && all (columnNameExists tableName) columnNames = Right $ SelectColumns tableName columnNames
+      | otherwise = Left "Unsupported or invalid statement"
+
+splitByComma :: String -> [String]
+splitByComma = map (dropWhile (== ' ')) . words . map (\c -> if c == ',' then ' ' else c)
 
 parseSemiCaseSensitive :: String -> [String]
 parseSemiCaseSensitive statement = convertedStatement
@@ -92,6 +103,18 @@ executeStatement (AvgColumn tableName columnName) =
                       avg = fromIntegral sumValues / fromIntegral (length validIntValues)
                    in Right $ DataFrame [Column "AVG" IntegerType] [[IntegerValue (round avg)]]
         Nothing -> Left $ "Column " ++ columnName ++ " not found in table " ++ tableName
+    Nothing -> Left $ "Table " ++ tableName ++ " not found"
+executeStatement (SelectColumns tableName columnNames) =
+  case lookup tableName database of
+    Just df@(DataFrame cols rows) ->
+      case mapM (`findColumnIndex` df) columnNames of
+        Just columnIndices ->
+          let selectedColumns = map (\idx -> cols !! idx) columnIndices
+              selectedRows = map (\row -> map (\idx -> row !! idx) columnIndices) rows
+           in if any (any isNullValue) selectedRows
+                then Left "Error: Null value found in one or more rows"
+                else Right $ DataFrame selectedColumns selectedRows
+        Nothing -> Left $ "One or more columns not found in table " ++ tableName
     Nothing -> Left $ "Table " ++ tableName ++ " not found"
 
 columns :: DataFrame -> [Column]
@@ -193,3 +216,7 @@ getColumns src = getValuesUpTo (parseSemiCaseSensitive src) "from"
 getValuesUpTo :: (Eq a) => [a] -> a -> [a]
 getValuesUpTo [] _ = []
 getValuesUpTo (x : xs) lastElem = if x == lastElem then [] else x : getValuesUpTo xs lastElem
+
+isNullValue :: Value -> Bool
+isNullValue NullValue = True
+isNullValue _ = False

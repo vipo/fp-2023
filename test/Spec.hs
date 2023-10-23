@@ -53,16 +53,13 @@ main = hspec $ do
         filterRowsByBoolColumn (fst D.tableWithNulls) "flagz" True `shouldBe` Left "Dataframe does not exist or does not contain column by specified name or column is not of type bool"
 
     describe "sqlMax" $ do
-      it "should return Left if table does not exist" $ do
-        sqlMax "_uck _e in the a__ tonight" "bonk go to horny jail" `shouldBe` Left "Cannot get max of this value type or table does not exist"
-
       it "should return Left if column does not exist" $ do
-        sqlMax (fst D.tableEmployees) "bonk" `shouldBe` Left "Cannot get max of this value type or table does not exist"
+        sqlMax (snd D.tableEmployees) "bonk" `shouldBe` Left "Cannot get max of this value type or table does not exist"
 
       it "should return max with correct parameters even if nulls in table" $ do
-        sqlMax (fst D.tableEmployees) "id" `shouldBe` Right (IntegerValue 2)
-        sqlMax (fst D.tableWithNulls) "value" `shouldBe` Right (BoolValue True)
-        sqlMax (fst D.tableWithNulls) "flag" `shouldBe` Right (StringValue "b")
+        sqlMax (snd D.tableEmployees) "id" `shouldBe` Right (IntegerValue 2)
+        sqlMax (snd D.tableWithNulls) "value" `shouldBe` Right (BoolValue True)
+        sqlMax (snd D.tableWithNulls) "flag" `shouldBe` Right (StringValue "b")
 
   describe "parseStatement in Lib2" $ do
     it "should parse 'SHOW TABLE employees;' correctly" $ do
@@ -101,11 +98,8 @@ main = hspec $ do
       "selEct MaX(id) From employees;"
       `shouldBe` Right (MaxColumn "employees" "id" Nothing)
 
-    it
-      "should parse 'selEct MaX(flag) From flags wheRe value iS tRue;'"
-      parseStatement
-      "selEct MaX(flag) From flags wheRe value iS tRue;"
-      `shouldBe` Right (MaxColumn "flags" "flag" (Just (IsValueBool True "flags" "value")))
+    it "should parse 'selEct MaX(flag) From flags wheRe value iS tRue;'"
+    parseStatement "selEct MaX(flag) From flags wheRe value iS tRue;" `shouldBe` Right (MaxColumn "flags" "flag" (Just (IsValueBool True "flags" "value")))
 
   describe "executeStatement in Lib2" $ do
     it "should list columns for 'SHOW TABLE employees;'" $ do
@@ -133,14 +127,14 @@ main = hspec $ do
 
   describe "executeStatement for AvgColumn in Lib2" $ do
     it "should calculate the average of the 'id' column in 'employees'" $
-      let parsed = AvgColumn "employees" "id"
+      let parsed = AvgColumn "employees" "id" Nothing
           expectedValue = 2 -- Change the expected value to 2
        in executeStatement parsed `shouldBe` Right (DataFrame [Column "AVG" IntegerType] [[IntegerValue expectedValue]])
 
     it "should give an error for a non-existent table" $ do
-      let parsed = AvgColumn "nonexistent" "id"
+      let parsed = AvgColumn "nonexistent" "id" Nothing
       executeStatement parsed `shouldBe` Left "Table nonexistent not found"
 
     it "should give an error for a non-existent column" $ do
-      let parsed = AvgColumn "employees" "nonexistent_column"
+      let parsed = AvgColumn "employees" "nonexistent_column" Nothing
       executeStatement parsed `shouldBe` Left "Column nonexistent_column not found in table employees"

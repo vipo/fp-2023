@@ -12,12 +12,16 @@ module Lib2
   ( parseStatement,
     executeStatement,
     ParsedStatement (..),
+    SelectQuery (..),
+    RelationalOperator (..),
     SelectData (..),
     Aggregate (..),
     AggregateFunction (..),
-    RelationalOperator (..),
+    Expression (..),
+    WhereClause (..),
     WhereCriterion (..),
-    Expression (..)
+    LogicalOperator (..),
+    Value(..)
   )
 where
 
@@ -254,10 +258,10 @@ parseRelationalOperator :: Parser RelationalOperator
 parseRelationalOperator =
       (parseKeyword "=" >> pure RelEQ)
   <|> (parseKeyword "!=" >> pure RelNE)
-  <|> (parseKeyword "<" >> pure RelLT)
-  <|> (parseKeyword ">" >> pure RelGT)
   <|> (parseKeyword "<=" >> pure RelLE)
   <|> (parseKeyword ">=" >> pure RelGE)
+  <|> (parseKeyword "<" >> pure RelLT)
+  <|> (parseKeyword ">" >> pure RelGT)
 
 parseLogicalOperator :: Parser LogicalOperator
 parseLogicalOperator = parseKeyword "AND" >> pure And

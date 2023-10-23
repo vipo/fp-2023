@@ -5,7 +5,17 @@
 module Lib2
   ( parseStatement,
     executeStatement,
-    ParsedStatement (..)
+    ParsedStatement (..),
+    SelectQuery (..),
+    RelationalOperator (..),
+    SelectData (..),
+    Aggregate (..),
+    AggregateFunction (..),
+    Expression (..),
+    WhereClause (..),
+    WhereCriterion (..),
+    LogicalOperator (..),
+    Value(..)
   )
 where
 
@@ -152,7 +162,7 @@ parseSelectStatement :: Parser ParsedStatement
 parseSelectStatement = do
     _ <- parseKeyword "SELECT"
     _ <- parseWhitespace
-    selectData <- parseSelectData `sepBy` (parseChar ',' *> parseWhitespace)
+    selectData <- parseSelectData `sepBy` (parseChar ',' *> optional parseWhitespace)
     _ <- parseWhitespace
     _ <- parseKeyword "FROM"
     _ <- parseWhitespace
@@ -238,10 +248,10 @@ parseRelationalOperator :: Parser RelationalOperator
 parseRelationalOperator = 
       (parseKeyword "=" >> pure RelEQ)
   <|> (parseKeyword "!=" >> pure RelNE)
-  <|> (parseKeyword "<" >> pure RelLT)
-  <|> (parseKeyword ">" >> pure RelGT)
   <|> (parseKeyword "<=" >> pure RelLE)
   <|> (parseKeyword ">=" >> pure RelGE)
+  <|> (parseKeyword "<" >> pure RelLT)
+  <|> (parseKeyword ">" >> pure RelGT)
 
 parseLogicalOperator :: Parser LogicalOperator
 parseLogicalOperator = parseKeyword "AND" >> pure And

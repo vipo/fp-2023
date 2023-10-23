@@ -26,13 +26,6 @@ data ParsedStatement
   | MaxColumn TableName String
   deriving (Show, Eq)
 
-columnNameExists :: TableName -> String -> Bool
-columnNameExists tableName columnName =
-  case lookup tableName database of
-    Just df ->
-      any (\(Column name _) -> name == columnName) (columns df)
-    Nothing -> False
-
 parseStatement :: String -> Either ErrorMessage ParsedStatement
 parseStatement input
   | last input /= ';' = Left "Unsupported or invalid statement"
@@ -63,16 +56,17 @@ parseAggregateFunction [func, "from", tableName]
 parseSemiCaseSensitive :: String -> [String]
 parseSemiCaseSensitive statement = convertedStatement
   where
-    keywords = ["select", "from", "where", "show", "table", "tables"]
     splitStatement = words statement
     convertedStatement = map wordToLowerSensitive splitStatement
 
-    wordToLowerSensitive :: String -> String
-    wordToLowerSensitive word
-      | map toLower word `elem` keywords = map toLower word
-      | "avg(" `isPrefixOf` map toLower word && ")" `isSuffixOf` word = "avg(" ++ drop 4 (init word) ++ ")"
-      | "max(" `isPrefixOf` map toLower word && ")" `isSuffixOf` word = "max(" ++ drop 4 (init word) ++ ")"
-      | otherwise = word
+wordToLowerSensitive :: String -> String
+wordToLowerSensitive word
+  | map toLower word `elem` keywords = map toLower word
+  | "avg(" `isPrefixOf` map toLower word && ")" `isSuffixOf` word = "avg(" ++ drop 4 (init word) ++ ")"
+  | "max(" `isPrefixOf` map toLower word && ")" `isSuffixOf` word = "max(" ++ drop 4 (init word) ++ ")"
+  | otherwise = word
+  where
+    keywords = ["select", "from", "where", "show", "table", "tables"]
 
 tableNameExists :: TableName -> Bool
 tableNameExists name = any (\(tableName, _) -> tableName == name) database
@@ -102,31 +96,6 @@ executeStatement (AvgColumn tableName columnName) =
 
 columns :: DataFrame -> [Column]
 columns (DataFrame cols _) = cols
-
--- Util functions
-
-getColumnByName :: String -> [Column] -> Column
-getColumnByName name cols = fromMaybe (Column "notfound" BoolType) (find (\(Column colName _) -> colName == name) cols)
-
-getColNameList :: [Column] -> [String]
-getColNameList = map (\(Column name _) -> name)
-
-getColumnType :: Column -> ColumnType
-getColumnType (Column _ columnType) = columnType
-
-getDataFrameByName :: TableName -> DataFrame
-getDataFrameByName name = fromMaybe (DataFrame [] []) (lookup name database)
-
-getDataFrameCols :: DataFrame -> [Column]
-getDataFrameCols (DataFrame cols _) = cols
-
-getDataFrameRows :: DataFrame -> [Row]
-getDataFrameRows (DataFrame _ rows) = rows
-
-isTableInDatabase :: TableName -> Bool
-isTableInDatabase name = case lookup name database of
-  Just _ -> True
-  Nothing -> False
 
 -- Filter rows based on whether the specified column's value is TRUE or FALSE.
 filterRowsByBoolColumn :: TableName -> String -> Bool -> Either ErrorMessage DataFrame
@@ -173,6 +142,37 @@ sqlMax name col
     compValue NullValue (BoolValue _) = False
     compValue _ _ = True
 
+-- Util functions
+columnNameExists :: TableName -> String -> Bool
+columnNameExists tableName columnName =
+  case lookup tableName database of
+    Just df ->
+      any (\(Column name _) -> name == columnName) (columns df)
+    Nothing -> False
+
+getColumnByName :: String -> [Column] -> Column
+getColumnByName name cols = fromMaybe (Column "notfound" BoolType) (find (\(Column colName _) -> colName == name) cols)
+
+getColNameList :: [Column] -> [String]
+getColNameList = map (\(Column name _) -> name)
+
+getColumnType :: Column -> ColumnType
+getColumnType (Column _ columnType) = columnType
+
+getDataFrameByName :: TableName -> DataFrame
+getDataFrameByName name = fromMaybe (DataFrame [] []) (lookup name database)
+
+getDataFrameCols :: DataFrame -> [Column]
+getDataFrameCols (DataFrame cols _) = cols
+
+getDataFrameRows :: DataFrame -> [Row]
+getDataFrameRows (DataFrame _ rows) = rows
+
+isTableInDatabase :: TableName -> Bool
+isTableInDatabase name = case lookup name database of
+  Just _ -> True
+  Nothing -> False
+
 findColumnIndex :: String -> DataFrame -> Maybe Int
 findColumnIndex columnName (DataFrame columns _) =
   elemIndex columnName (map (\(Column name _) -> name) columns)
@@ -186,3 +186,10 @@ isIntegerValue _ = False
 
 sumIntValues :: [Value] -> Integer
 sumIntValues = foldr (\(IntegerValue x) acc -> x + acc) 0
+
+getColumns :: String -> [String]
+getColumns src = getValuesUpTo (parseSemiCaseSensitive src) "from"
+
+getValuesUpTo :: (Eq a) => [a] -> a -> [a]
+getValuesUpTo [] _ = []
+getValuesUpTo (x : xs) lastElem = if x == lastElem then [] else x : getValuesUpTo xs lastElem

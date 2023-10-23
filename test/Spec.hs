@@ -5,6 +5,7 @@ import Lib1
 import Lib2
 import Test.Hspec
 
+
 main :: IO ()
 main = hspec $ do
   describe "Lib1.findTableByName" $ do
@@ -68,4 +69,23 @@ main = hspec $ do
       Lib2.parseStatement "   ShOW   taBLeS    ;  " `shouldBe` Right ShowTablesStatement
     it "handles invalid statement" $ do
       Lib2.parseStatement "shw tables;" `shouldSatisfy` isLeft
-
+    it "handles invalid SELECT statement" $ do
+      Lib2.parseStatement "SELECT id name FROM employees;" `shouldSatisfy` isLeft
+    it "handles basic SELECT statement" $ do
+      Lib2.parseStatement "SELECT a, b FROM table;" `shouldBe` Right (SelectStatement {table = "table", query = [SelectColumn "a",SelectColumn "b"], whereClause = Nothing})
+    it "handles basic SELECT statement with columns without whitespace separator" $ do
+      Lib2.parseStatement "SELECT a,b FROM table;" `shouldBe` Right (SelectStatement {table = "table", query = [SelectColumn "a",SelectColumn "b"], whereClause = Nothing})
+    it "handles basic SELECT statement with columns without  separator" $ do
+      Lib2.parseStatement "SELECT a b FROM table;" `shouldSatisfy` isLeft
+    it "handles basic SELECT statement with multiple aggregates" $ do
+      Lib2.parseStatement "SELECT MIN(a), SUM(b) FROM table;" `shouldBe` Right (SelectStatement {table = "table", query = [SelectAggregate (Aggregate Min "a"), SelectAggregate (Aggregate Sum "b")], whereClause = Nothing})
+    it "handles SELECT statement that mixes columns and aggregates" $ do
+      Lib2.parseStatement "SELECT MIN(a), b FROM table;" `shouldSatisfy` isLeft
+    it "handles SELECT statement with multiple WHERE criterion that compare columns" $ do
+      Lib2.parseStatement "SELECT a, b, c, d FROM table WHERE a=b AND b!=c AND c>d AND d<e AND a>=b AND b<=c;" `shouldBe` Right (SelectStatement {table = "table", query = [SelectColumn "a",SelectColumn "b",SelectColumn "c",SelectColumn "d"], whereClause = Just [(WhereCriterion (ColumnExpression "a") RelEQ (ColumnExpression "b"),Just And),(WhereCriterion (ColumnExpression "b") RelNE (ColumnExpression "c"),Just And),(WhereCriterion (ColumnExpression "c") RelGT (ColumnExpression "d"),Just And),(WhereCriterion (ColumnExpression "d") RelLT (ColumnExpression "e"),Just And),(WhereCriterion (ColumnExpression "a") RelGE (ColumnExpression "b"),Just And),(WhereCriterion (ColumnExpression "b") RelLE (ColumnExpression "c"),Nothing)]})
+    it "handles SELECT statement with multiple WHERE criterion that compare strings" $ do
+        Lib2.parseStatement "SELECT a FROM table WHERE 'aa'='aa' AND 'a'!='b' 'b'<'c';" `shouldBe` Right (SelectStatement {table = "table", query = [SelectColumn "a"], whereClause = Just [(WhereCriterion (ValueExpression (StringValue 
+        "aa")) RelEQ (ValueExpression (StringValue "aa")),Just And),(WhereCriterion (ValueExpression (StringValue "a")) RelNE (ValueExpression 
+        (StringValue "b")),Nothing),(WhereCriterion (ValueExpression (StringValue "b")) RelLT (ValueExpression (StringValue "c")),Nothing)]})
+    it "handles SELECT statement with multiple WHERE criterion that compare strings and columns" $ do
+      Lib2.parseStatement "SELECT a FROM table WHERE a='aa' AND aaa!='b' AND 'b'<aaa;" `shouldBe` Right (SelectStatement {table = "table", query = [SelectColumn "a"], whereClause = Just [(WhereCriterion (ColumnExpression "a") RelEQ (ValueExpression (StringValue "aa")),Just And),(WhereCriterion (ColumnExpression "aaa") RelNE (ValueExpression (StringValue "b")),Just And),(WhereCriterion (ValueExpression (StringValue "b")) RelLT (ColumnExpression "aaa"),Nothing)]})

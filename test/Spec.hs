@@ -4,6 +4,7 @@ import InMemoryTables qualified as D
 import Lib1
 import Lib2
 import Test.Hspec
+import DataFrame (DataFrame(DataFrame))
 
 main :: IO ()
 main = hspec $ do
@@ -68,4 +69,15 @@ main = hspec $ do
       Lib2.parseStatement "   ShOW   taBLeS    ;  " `shouldBe` Right ShowTablesStatement
     it "handles invalid statement" $ do
       Lib2.parseStatement "shw tables;" `shouldSatisfy` isLeft
+  describe "Lib2.executeStatement" $ do
+    it "executes show tables statement" $ do
+      Lib2.executeStatement "SHOW TABLES;" `shouldBe` Right DataFrame
+    it "executes show table <name> statement" $ do
+      Lib2.executeStatement "SHOW TABLE employees;" `shouldBe` Right (snd D.tableEmployees)
+    it "executes simple select statement" $ do
+      Lib2.executeStatement "SELECT id from employees;" `shouldBe` Right DataFrame
+    it "executes select statement with a where clause" $ do
+      Lib2.executeStatement "SELECT id from employees where name ='Ed';" `shouldBe` Right DataFrame
+    it "executes select statement with an aggregate" $ do
+      Lib2.executeStatement "SELECT min(id) From employees;" `shouldBe` Right DataFrame
 

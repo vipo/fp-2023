@@ -63,6 +63,7 @@ type SelectQuery = [SelectData]
 type WhereClause = [(WhereCriterion, Maybe LogicalOperator)]
 
 -- Keep the type, modify constructors
+
 data ParsedStatement = SelectStatement {
     table :: TableName,
     query :: SelectQuery,
@@ -121,6 +122,7 @@ instance Ord Value where
 
 -- Parses user input into an entity representing a parsed
 -- statement
+
 parseStatement :: String -> Either ErrorMessage ParsedStatement
 parseStatement inp = case runParser parser (dropWhile isSpace inp) of
     Left err1 -> Left err1
@@ -150,14 +152,12 @@ parseShowTableStatement = do
     _ <- parseWhitespace
     ShowTableStatement <$> parseWord
 
-
 parseShowTablesStatement :: Parser ParsedStatement
 parseShowTablesStatement = do
     _ <- parseKeyword "show"
     _ <- parseWhitespace
     _ <- parseKeyword "tables"
     pure ShowTablesStatement
-
 
 parseSelectStatement :: Parser ParsedStatement
 parseSelectStatement = do
@@ -313,6 +313,7 @@ parseAggregate = do
     pure $ Aggregate func columnName
 
 -- validation
+
 validateSelectData :: [SelectData] -> Maybe ErrorMessage
 validateSelectData selectData
     | all isSelectColumn selectData = Nothing
@@ -326,7 +327,6 @@ isSelectColumn _ = False
 isSelectAggregate :: SelectData -> Bool
 isSelectAggregate (SelectAggregate _) = True
 isSelectAggregate _ = False
-
 
 --util functions
 
@@ -357,7 +357,6 @@ findColumnType' columnName (column@(Column name columnType):xs) index
     | columnName == name = Right columnType
     | otherwise          = findColumnType' columnName xs (index+1)
 
-
 minColumnValue :: Int -> [Row] -> Either ErrorMessage Value
 minColumnValue index rows =
     case findMin $ extractColumn index rows of
@@ -372,7 +371,6 @@ minColumnValue index rows =
                 [] -> Left "Column has no values."
                 vals -> Right (minValue vals)
 
-
         minValue :: [Value] -> Value
         minValue = foldl1 minValue'
 
@@ -381,7 +379,6 @@ minColumnValue index rows =
         minValue' (StringValue a) (StringValue b) = StringValue (min a b)
         minValue' (BoolValue a) (BoolValue b) = BoolValue (a && b)
         minValue' _ _ = NullValue
-
 
 sumColumnValues :: Int -> [Row] -> ColumnName -> [Column] -> Either ErrorMessage Value
 sumColumnValues index rows columnName columns =
@@ -417,6 +414,7 @@ sumColumnValues index rows columnName columns =
 
 -- Executes a parsed statement. Produces a DataFrame. Uses
 -- InMemoryTables.databases as a source of data.
+
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
 executeStatement ShowTablesStatement = Right $ convertToDataFrame (tableNames database)
 
@@ -475,10 +473,10 @@ createAggregateRows columnName columns aggFunc index rows =
     case aggFunc of
         Sum -> let sumValue = sumColumnValues index rows columnName columns in
             case sumValue of
-            Right value -> map (updateCell index value) rows
+            Right value -> take 1 $ map (updateCell index value) rows
         Min -> let minValue = minColumnValue index rows in
             case minValue of
-            Right value -> map (updateCell index value) rows
+            Right value -> take 1 $ map (updateCell index value) rows
 
 updateCell :: Int -> a -> [a] -> [a]
 updateCell index newValue row =
@@ -490,7 +488,6 @@ filterRows indices rows = [selectColumns indices row | row <- rows]
     selectColumns :: [Int] -> Row -> Row
     selectColumns [] _ = []
     selectColumns (i:rest) row = (row !! i) : selectColumns rest row
-
 
 filterRowsByWhereClause :: WhereClause -> [Column] -> [Row] -> Either ErrorMessage [Row]
 filterRowsByWhereClause [] _ rows = Right rows

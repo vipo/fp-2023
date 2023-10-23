@@ -21,7 +21,7 @@ module Lib2
   )
 where
 
-import DataFrame (DataFrame(..), Column(..), ColumnType(..), Value(..), Row(..))
+import DataFrame (DataFrame(..), Column(..), ColumnType(..), Value(..), Row)
 import InMemoryTables (TableName, database)
 import Control.Applicative ( many, some, Alternative(empty, (<|>)), optional )
 import Data.Char (toLower, isSpace, isAlphaNum)
@@ -240,8 +240,7 @@ parseWhereClause = do
     _ <- parseWhitespace
     _ <- parseKeyword "where"
     _ <- parseWhitespace
-    crits <- some (parseCriterionAndOptionalOperator)
-    pure crits
+    some parseCriterionAndOptionalOperator
 
     where
         parseCriterionAndOptionalOperator :: Parser (WhereCriterion, Maybe LogicalOperator)
@@ -268,11 +267,11 @@ parseExpression = (ValueExpression <$> parseValue) <|> (ColumnExpression <$> par
 
 parseWhereCriterion :: Parser WhereCriterion
 parseWhereCriterion = do
-    leftExpr <- parseExpression <|> (Parser $ \_ -> Left "Missing left-hand expression in criterion.")
+    leftExpr <- parseExpression <|> Parser (\_ -> Left "Missing left-hand expression in criterion.")
     _ <- optional parseWhitespace
-    op <- parseRelationalOperator <|> (Parser $ \_ -> Left "Missing relational operator.")
+    op <- parseRelationalOperator <|> Parser (\_ -> Left "Missing relational operator.")
     _ <- optional parseWhitespace
-    rightExpr <- parseExpression <|> (Parser $ \_ -> Left "Missing right-hand expression in criterion.")
+    rightExpr <- parseExpression <|> Parser (\_ -> Left "Missing right-hand expression in criterion.")
     pure $ WhereCriterion leftExpr op rightExpr
 
 -- column list parsing
@@ -292,11 +291,9 @@ parseSelectData :: Parser SelectData
 parseSelectData = tryParseAggregate <|> tryParseColumn
   where
     tryParseAggregate = do
-        agg <- parseAggregate
-        pure $ SelectAggregate agg
+        SelectAggregate <$> parseAggregate
     tryParseColumn = do
-        columnName <- parseWord
-        pure $ SelectColumn columnName
+        SelectColumn <$> parseWord
 
 -- aggregate parsing
 
@@ -388,7 +385,7 @@ minColumnValue index rows =
 
 sumColumnValues :: Int -> [Row] -> ColumnName -> [Column] -> Either ErrorMessage Value
 sumColumnValues index rows columnName columns =
-    case findColumnType columnName columns of
+    case findSumColumnType columnName columns of
         Left errorMessage -> Left errorMessage
         Right columnType ->
             case columnType of
@@ -397,9 +394,9 @@ sumColumnValues index rows columnName columns =
 
     where
 
-        findColumnType :: ColumnName -> [Column] -> Either ErrorMessage ColumnType
-        findColumnType columnName columns =
-            case [columnType | (Column name columnType) <- columns, name == columnName] of
+        findSumColumnType :: ColumnName -> [Column] -> Either ErrorMessage ColumnType
+        findSumColumnType cName allColumns =
+            case [columnType | (Column name columnType) <- allColumns, name == cName] of
                 [] -> Left "Column does not exist."
                 (columnType:_) -> Right columnType
 
@@ -537,11 +534,8 @@ lookupColumnValue columnName columns row =
         Left _ -> Nothing
         Right columnIndex -> Just (row !! columnIndex)
 
-
 tableNames :: Database -> [TableName]
 tableNames db = map fst db
 
 convertToDataFrame :: [TableName] -> DataFrame
 convertToDataFrame alltableNames = DataFrame [Column "Table Name" StringType] (map (\name -> [StringValue name]) alltableNames)
-
-

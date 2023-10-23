@@ -92,14 +92,11 @@ main = hspec $ do
     it "should still match case-insensitive SQL keywords" $ do
       parseStatement "SELECT AVG(id) FROM employees;" `shouldBe` Right (AvgColumn "employees" "id" Nothing)
 
-    it
-      "should parse 'selEct MaX(id) From employees;' correctly with case-sensitive table and column names"
-      parseStatement
-      "selEct MaX(id) From employees;"
-      `shouldBe` Right (MaxColumn "employees" "id" Nothing)
+    it "should parse 'selEct MaX(id) From employees;' correctly with case-sensitive table and column names"
+      parseStatement "selEct MaX(id) From employees;" `shouldBe` Right (MaxColumn "employees" "id" Nothing)
 
     it "should parse 'selEct MaX(flag) From flags wheRe value iS tRue;'"
-    parseStatement "selEct MaX(flag) From flags wheRe value iS tRue;" `shouldBe` Right (MaxColumn "flags" "flag" (Just (IsValueBool True "flags" "value")))
+      parseStatement "selEct MaX(flag) From flags wheRe value iS tRue;" `shouldBe` Right (MaxColumn "flags" "flag" (Just (IsValueBool True "flags" "value")))
 
   describe "executeStatement in Lib2" $ do
     it "should list columns for 'SHOW TABLE employees;'" $ do

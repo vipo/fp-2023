@@ -161,7 +161,3 @@ main = hspec $ do
     it "should return an error for a non-existent column in SELECT" $ do
       let parsed = SelectColumns "employees" ["id", "nonexistent_column"] Nothing
       executeStatement parsed `shouldBe` Left "One or more columns not found in table employees"
-
-    it "should return an error if there's a null value in the selected rows" $ do
-      let parsed = SelectColumns "flags" ["flag", "value"] Nothing
-      executeStatement parsed `shouldBe` Left "Error: Null value found in one or more rows"

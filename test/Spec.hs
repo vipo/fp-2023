@@ -40,26 +40,25 @@ main = hspec $ do
     it "renders a table" $ do
       Lib1.renderDataFrameAsTable 100 (snd D.tableEmployees) `shouldSatisfy` not . null
 
-  describe "Lib2" $ do
-    describe "filterRowsByBoolColumn" $ do
-      it "should return list of matching rows" $ do
-        filterRowsByBoolColumn (fst D.tableWithNulls) "value" True `shouldBe` Right (DataFrame [Column "flag" StringType, Column "value" BoolType] [[StringValue "a", BoolValue True], [StringValue "b", BoolValue True]])
-        filterRowsByBoolColumn (fst D.tableWithNulls) "value" False `shouldBe` Right (DataFrame [Column "flag" StringType, Column "value" BoolType] [[StringValue "b", BoolValue False]])
+  describe "filterRowsByBoolColumn" $ do
+    it "should return list of matching rows" $ do
+      filterRowsByBoolColumn (fst D.tableWithNulls) "value" True `shouldBe` Right (DataFrame [Column "flag" StringType, Column "value" BoolType] [[StringValue "a", BoolValue True], [StringValue "b", BoolValue True]])
+      filterRowsByBoolColumn (fst D.tableWithNulls) "value" False `shouldBe` Right (DataFrame [Column "flag" StringType, Column "value" BoolType] [[StringValue "b", BoolValue False]])
 
-      it "should return Error if Column is not bool type" $ do
-        filterRowsByBoolColumn (fst D.tableWithNulls) "flag" True `shouldBe` Left "Dataframe does not exist or does not contain column by specified name or column is not of type bool"
+    it "should return Error if Column is not bool type" $ do
+      filterRowsByBoolColumn (fst D.tableWithNulls) "flag" True `shouldBe` Left "Dataframe does not exist or does not contain column by specified name or column is not of type bool"
 
-      it "should return Error if Column is not in table" $ do
-        filterRowsByBoolColumn (fst D.tableWithNulls) "flagz" True `shouldBe` Left "Dataframe does not exist or does not contain column by specified name or column is not of type bool"
+    it "should return Error if Column is not in table" $ do
+      filterRowsByBoolColumn (fst D.tableWithNulls) "flagz" True `shouldBe` Left "Dataframe does not exist or does not contain column by specified name or column is not of type bool"
 
-    describe "sqlMax" $ do
-      it "should return Left if column does not exist" $ do
-        sqlMax (snd D.tableEmployees) "bonk" `shouldBe` Left "Cannot get max of this value type or table does not exist"
+  describe "sqlMax" $ do
+    it "should return Left if column does not exist" $ do
+      sqlMax (snd D.tableEmployees) "bonk" `shouldBe` Left "Cannot get max of this value type or table does not exist"
 
-      it "should return max with correct parameters even if nulls in table" $ do
-        sqlMax (snd D.tableEmployees) "id" `shouldBe` Right (IntegerValue 2)
-        sqlMax (snd D.tableWithNulls) "value" `shouldBe` Right (BoolValue True)
-        sqlMax (snd D.tableWithNulls) "flag" `shouldBe` Right (StringValue "b")
+    it "should return max with correct parameters even if nulls in table" $ do
+      sqlMax (snd D.tableEmployees) "id" `shouldBe` Right (IntegerValue 2)
+      sqlMax (snd D.tableWithNulls) "value" `shouldBe` Right (BoolValue True)
+      sqlMax (snd D.tableWithNulls) "flag" `shouldBe` Right (StringValue "b")
 
   describe "parseStatement in Lib2" $ do
     it "should parse 'SHOW TABLE employees;' correctly" $ do
@@ -97,6 +96,15 @@ main = hspec $ do
 
     it "should parse 'selEct MaX(flag) From flags wheRe value iS tRue;'" $ do
       parseStatement "selEct MaX(flag) From flags wheRe value iS tRue;" `shouldBe` Right (MaxColumn "flags" "flag" (Just (IsValueBool True "flags" "value")))
+
+    it "should parse 'SELECT column1 FROM employees;' correctly" $ do
+      parseStatement "SELECT id FROM employees;" `shouldBe` Right (SelectColumns "employees" ["id"] Nothing)
+
+    it "should parse 'SELECT column1, column2 FROM employees;' correctly" $ do
+      parseStatement "SELECT id, name FROM employees;" `shouldBe` Right (SelectColumns "employees" ["id", "name"] Nothing)
+
+    it "should return an error for statements without semicolon for SELECT" $ do
+      parseStatement "SELECT id FROM employees" `shouldBe` Left "Unsupported or invalid statement"
 
     it "shouldn't parse 'selEct MaX(flag) From flags wheRe value iS tRuewad;'" $ do
       parseStatement "selEct MaX(flag) From flags wheRe value iS tRuewad;" `shouldBe` Left "Unsupported or invalid statement"
@@ -141,3 +149,19 @@ main = hspec $ do
     it "should give an error for a non-existent column" $ do
       let parsed = AvgColumn "employees" "nonexistent_column" Nothing
       executeStatement parsed `shouldBe` Left "Column nonexistent_column not found in table employees"
+
+    it "should return the 'id' column for 'SELECT id FROM employees;'" $ do
+      let parsed = SelectColumns "employees" ["id"] Nothing
+      let expectedColumns = [Column "id" IntegerType]
+      let expectedRows = [[IntegerValue 1], [IntegerValue 2]]
+      executeStatement parsed `shouldBe` Right (DataFrame expectedColumns expectedRows)
+
+    it "should return the 'id' and 'name' columns for 'SELECT id, name FROM employees;'" $ do
+      let parsed = SelectColumns "employees" ["id", "name"] Nothing
+      let expectedColumns = [Column "id" IntegerType, Column "name" StringType]
+      let expectedRows = [[IntegerValue 1, StringValue "Vi"], [IntegerValue 2, StringValue "Ed"]]
+      executeStatement parsed `shouldBe` Right (DataFrame expectedColumns expectedRows)
+
+    it "should return an error for a non-existent column in SELECT" $ do
+      let parsed = SelectColumns "employees" ["id", "nonexistent_column"] Nothing
+      executeStatement parsed `shouldBe` Left "One or more columns not found in table employees"

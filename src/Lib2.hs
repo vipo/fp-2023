@@ -240,3 +240,4 @@ isNullValue _ = False
 
 columns :: DataFrame -> [Column]
 columns (DataFrame cols _) = cols
+

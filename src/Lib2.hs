@@ -1,10 +1,43 @@
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 {-# LANGUAGE BlockArguments #-}
+{-# OPTIONS_GHC -Wno-unused-top-binds #-}
+{-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE DataKinds #-}
+{-# OPTIONS_GHC -Wno-overlapping-patterns #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Eta reduce" #-}
+{-# OPTIONS_GHC -Wno-incomplete-patterns #-}
+{-# HLINT ignore "Redundant return" #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
+
 
 module Lib2
   ( parseStatement,
     executeStatement,
-    ParsedStatement
+    ParsedStatement (..),
+    queryStatementParser,
+    whitespaceParser,
+    showTablesParser,
+    showTableParser,
+    tableNameParser,
+    isValidTableName,
+    isOneWord,
+    dropWhiteSpaces,
+    columnsToList,
+    getColumnName,
+    findTableNames,
+    findTuples,
+    firstFromTuple,
+    selectStatementParser,
+    columnNamesParser,
+    areColumnsListedRight,
+    splitStatementAtFrom,
+    split,
+    toLowerString,
+    charToString,
+    createColumnsDataFrame,
+    createColumnsDataFrame,
+    stopParseAt
   )
 where
 
@@ -127,8 +160,9 @@ parseStatement query = case runParser p query of
 
 
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
-executeStatement ShowTables = Right (createTablesDataFrame findTableNames)
+executeStatement ShowTables = Right $ createTablesDataFrame findTableNames
 executeStatement  (ShowTable table) = Right (createColumnsDataFrame (columnsToList (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database))) table)
+--executeStatement Select = Right 
 executeStatement _ = Left "Not implemented: executeStatement for other statements"
 ---------------------------------------------------------------------------------
 
@@ -157,7 +191,7 @@ showTablesParser = do
     pure ShowTables
 
 ------------------------------------------------------------------------------------
-
+ 
 showTableParser :: Parser ParsedStatement
 showTableParser = do
     _ <- queryStatementParser "show"

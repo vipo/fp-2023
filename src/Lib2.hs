@@ -264,7 +264,7 @@ columnNamesParser = Parser $ \query ->
     True -> Left "Column name is expected"
     False -> case toLowerString(head(split query ' ')) == "from" of
       True -> Left "No column name was provided"
-      False -> case areColumnsListedRight (fst (splitStatementAtFrom query)) && areColumnsListedRight (snd (splitStatementAtFrom query)) of
+      False -> case commaBetweenColumsNames(fst (splitStatementAtFrom query)) && areColumnsListedRight (fst (splitStatementAtFrom query)) && areColumnsListedRight (snd (splitStatementAtFrom query)) of
         True ->Right ((split (dropWhiteSpaces(fst (splitStatementAtFrom query))) ','), snd (splitStatementAtFrom query))
         False -> Left "Column names are not listed right or from is missing"
 
@@ -288,6 +288,46 @@ split (c:cs) delim
     | otherwise = (c : head rest) : tail rest
     where
         rest = split cs delim
+
+-- tik kablelis == m chill
+commaBetweenColumsNames :: String -> Bool
+commaBetweenColumsNames [] = True
+commaBetweenColumsNames (x:xs)
+  | x /= ',' && xs == "" = True
+commaBetweenColumsNames (x:y:xs)
+  | x == ' ' && y /=  ' ' && xs == "" = False 
+  | x /= ',' && y == ' ' && xs == "" = True 
+  | x /= ',' && xs == "" = True 
+  | x == ' ' && xs == "" = True 
+  | x == ',' && y == ' ' && xs == "" = False
+  | x == ',' && y /= ' ' && xs == "" = True
+  | x /= ' ' && x /= ',' = commaBetweenColumsNames (y:xs)
+  | x == ',' && y /= ' ' && y /= ',' = commaBetweenColumsNames (y:xs)
+  | x == ',' && whitespaceBeforeNameAfterCommaExist (y:xs) = commaBetweenColumsNames (dropWhiteSpacesUntilName (y:xs))  --nes viskas chill tik tada kai viskas praeita????
+  | x == ' ' && commaAfterWhitespaceExist (y:xs) = commaBetweenColumsNames (y:xs)
+  |otherwise = False
+
+dropWhiteSpacesUntilName :: String -> String
+dropWhiteSpacesUntilName [] = []
+dropWhiteSpacesUntilName (x:xs)
+  | x == ' ' = dropWhiteSpacesUntilName xs
+  | otherwise = xs
+
+whitespaceBeforeNameAfterCommaExist :: String -> Bool
+whitespaceBeforeNameAfterCommaExist [] = False --nezinau ar gerai, nes jei tuscias - tai baigesi su ",", bet mes sita jau atmetem
+whitespaceBeforeNameAfterCommaExist (x:y:xs)
+  | x == ' ' && xs == "" = True
+  | x /= ' ' && xs == "" = False
+  | x == ' ' && y /= ' ' && y /= ',' = True
+  | x == ' ' = whitespaceBeforeNameAfterCommaExist (y:xs)
+  | otherwise = False
+
+commaAfterWhitespaceExist :: String -> Bool
+commaAfterWhitespaceExist [] = True -- kam ta kabute, jei zodi dakalei
+commaAfterWhitespaceExist (x:xs)
+  | x == ' ' = commaAfterWhitespaceExist xs
+  | x == ',' = True
+  | otherwise = False --nei tarpas nei kabute = prasideja zodis
 
 toLowerString :: String -> String
 toLowerString [] = ""

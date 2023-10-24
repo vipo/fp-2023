@@ -98,10 +98,10 @@ main = hspec $ do
       parseStatement "selEct MaX(flag) From flags wheRe value iS tRue;" `shouldBe` Right (MaxColumn "flags" "flag" (Just (IsValueBool True "flags" "value")))
 
     it "should parse 'SELECT column1 FROM employees;' correctly" $ do
-      parseStatement "SELECT id FROM employees;" `shouldBe` Right (SelectColumns "employees" ["id"])
+      parseStatement "SELECT id FROM employees;" `shouldBe` Right (SelectColumns "employees" ["id"] Nothing)
 
     it "should parse 'SELECT column1, column2 FROM employees;' correctly" $ do
-      parseStatement "SELECT id, name FROM employees;" `shouldBe` Right (SelectColumns "employees" ["id", "name"])
+      parseStatement "SELECT id, name FROM employees;" `shouldBe` Right (SelectColumns "employees" ["id", "name"] Nothing)
 
     it "should return an error for statements without semicolon for SELECT" $ do
       parseStatement "SELECT id FROM employees" `shouldBe` Left "Unsupported or invalid statement"
@@ -143,25 +143,25 @@ main = hspec $ do
       executeStatement parsed `shouldBe` Left "Table nonexistent not found"
 
     it "should give an error for a non-existent column" $ do
-      let parsed = AvgColumn "employees" "nonexistent_column"
+      let parsed = AvgColumn "employees" "nonexistent_column" Nothing
       executeStatement parsed `shouldBe` Left "Column nonexistent_column not found in table employees"
 
     it "should return the 'id' column for 'SELECT id FROM employees;'" $ do
-      let parsed = SelectColumns "employees" ["id"]
+      let parsed = SelectColumns "employees" ["id"] Nothing
       let expectedColumns = [Column "id" IntegerType]
       let expectedRows = [[IntegerValue 1], [IntegerValue 2]]
       executeStatement parsed `shouldBe` Right (DataFrame expectedColumns expectedRows)
 
     it "should return the 'id' and 'name' columns for 'SELECT id, name FROM employees;'" $ do
-      let parsed = SelectColumns "employees" ["id", "name"]
+      let parsed = SelectColumns "employees" ["id", "name"] Nothing
       let expectedColumns = [Column "id" IntegerType, Column "name" StringType]
       let expectedRows = [[IntegerValue 1, StringValue "Vi"], [IntegerValue 2, StringValue "Ed"]]
       executeStatement parsed `shouldBe` Right (DataFrame expectedColumns expectedRows)
 
     it "should return an error for a non-existent column in SELECT" $ do
-      let parsed = SelectColumns "employees" ["id", "nonexistent_column"]
+      let parsed = SelectColumns "employees" ["id", "nonexistent_column"] Nothing
       executeStatement parsed `shouldBe` Left "One or more columns not found in table employees"
 
     it "should return an error if there's a null value in the selected rows" $ do
-      let parsed = SelectColumns "flags" ["flag", "value"]
+      let parsed = SelectColumns "flags" ["flag", "value"] Nothing
       executeStatement parsed `shouldBe` Left "Error: Null value found in one or more rows"

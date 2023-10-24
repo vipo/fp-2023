@@ -96,7 +96,7 @@ wordToLowerSensitive word
   | "max(" `isPrefixOf` map toLower word && ")" `isSuffixOf` word = "max(" ++ drop 4 (init word) ++ ")"
   | otherwise = word
   where
-    keywords = ["select", "from", "where", "show", "table", "tables", "false", "true", "and"]
+    keywords = ["select", "from", "where", "show", "table", "tables", "false", "true", "and", "is"]
 
 tableNameExists :: TableName -> Bool
 tableNameExists name = any (\(tableName, _) -> tableName == name) database

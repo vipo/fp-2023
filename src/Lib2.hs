@@ -62,7 +62,7 @@ parseAggregateFunction statement = parseFunctionBody
           if length fromAndWhere == 2 && head fromAndWhere == "from"
             then (["from", fromAndWhere !! 1], ["where", "", "is", ""])
             else (["from", ""], ["where", "", "is", ""])
-    boolStringIsValid = boolString == "true" || boolString == "false"
+    boolStringIsValid = boolString == "true" || boolString == "false" || boolString == ""
     parsedBoolString = boolString == "true"
     whereFilter =
       if boolStringIsValid && columnNameExists tableName boolColName && getColumnType (getColumnByName boolColName (columns (getDataFrameByName tableName))) == BoolType
@@ -75,6 +75,7 @@ parseAggregateFunction statement = parseFunctionBody
 
     parseFunctionBody :: Either ErrorMessage ParsedStatement
     parseFunctionBody
+      | not boolStringIsValid && columnNameExists tableName boolColName || boolStringIsValid && (boolString /= "") && not (columnNameExists tableName boolColName) = Left "Unsupported or invalid statement"
       | "avg(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && tableAndColumnExists = Right (AvgColumn tableName columnName whereFilter)
       | "max(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && tableAndColumnExists = Right (MaxColumn tableName columnName whereFilter)
       | tableNameExists tableName && all (columnNameExists tableName) columnNames = Right (SelectColumns tableName columnNames whereFilter)

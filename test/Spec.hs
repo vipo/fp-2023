@@ -98,6 +98,12 @@ main = hspec $ do
     it "should parse 'selEct MaX(flag) From flags wheRe value iS tRue;'" $ do
       parseStatement "selEct MaX(flag) From flags wheRe value iS tRue;" `shouldBe` Right (MaxColumn "flags" "flag" (Just (IsValueBool True "flags" "value")))
 
+    it "shouldn't parse 'selEct MaX(flag) From flags wheRe value iS tRuewad;'" $ do
+      parseStatement "selEct MaX(flag) From flags wheRe value iS tRuewad;" `shouldBe` Left "Unsupported or invalid statement"
+    
+    it "shouldn't parse 'selEct MaX(flag) From flags wheRe valEZ iS tRuewad;'" $ do
+      parseStatement "selEct MaX(flag) From flags wheRe value iS tRuewad;" `shouldBe` Left "Unsupported or invalid statement"
+
   describe "executeStatement in Lib2" $ do
     it "should list columns for 'SHOW TABLE employees;'" $ do
       let parsed = ShowTable "employees"

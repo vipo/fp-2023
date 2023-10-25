@@ -10,6 +10,8 @@ module Lib2
     sqlMax,
     WhereClause (..),
     ParsedStatement (..),
+    Condition (..),
+    ConditionValue (..),
   )
 where
 
@@ -31,6 +33,18 @@ data ParsedStatement
 
 data WhereClause
   = IsValueBool Bool TableName String
+  | Conditions [Condition]
+  deriving (Show, Eq)
+
+data Condition 
+  = Equals String ConditionValue
+  | GreaterThan String ConditionValue
+  | LessThan String ConditionValue
+  deriving (Show, Eq)
+
+data ConditionValue
+  = StrValue String
+  | IntValue Int
   deriving (Show, Eq)
 
 parseStatement :: String -> Either ErrorMessage ParsedStatement
@@ -54,6 +68,8 @@ mapStatementType statement = case statement of
 parseAggregateFunction :: [String] -> Either ErrorMessage ParsedStatement
 parseAggregateFunction statement = parseFunctionBody
   where
+    (_, afterWhere) = break (== "where") statement
+    isWhereAnd = length afterWhere > 0
     (columnWords, fromAndWhere) = break (== "from") statement
     (["from", tableName], ["where", boolColName, "is", boolString]) =
       if length fromAndWhere == 6 && head fromAndWhere == "from" && fromAndWhere !! 2 == "where" && fromAndWhere !! 4 == "is"
@@ -64,8 +80,10 @@ parseAggregateFunction statement = parseFunctionBody
             else (["from", ""], ["where", "", "is", ""])
     boolStringIsValid = boolString == "true" || boolString == "false" || boolString == ""
     parsedBoolString = boolString == "true"
+    colIsBool = getColumnType (getColumnByName boolColName (columns (getDataFrameByName tableName))) == BoolType
+    isWhereBoolTF = boolColName /= "" && boolString /= ""
     whereFilter =
-      if boolStringIsValid && columnNameExists tableName boolColName && getColumnType (getColumnByName boolColName (columns (getDataFrameByName tableName))) == BoolType
+      if boolStringIsValid && columnNameExists tableName boolColName && colIsBool
         then Just (IsValueBool parsedBoolString tableName boolColName)
         else Nothing
     columnName = drop 4 $ init (head columnWords)
@@ -75,7 +93,7 @@ parseAggregateFunction statement = parseFunctionBody
 
     parseFunctionBody :: Either ErrorMessage ParsedStatement
     parseFunctionBody
-      | not boolStringIsValid && columnNameExists tableName boolColName || boolStringIsValid && (boolString /= "") && not (columnNameExists tableName boolColName) = Left "Unsupported or invalid statement"
+      | not boolStringIsValid && columnNameExists tableName boolColName || boolStringIsValid && (boolString /= "") && not (columnNameExists tableName boolColName) || isWhereBoolTF && not colIsBool = Left "Unsupported or invalid statement"
       | "avg(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && tableAndColumnExists && length columnWords == 1 = Right (AvgColumn tableName columnName whereFilter)
       | "max(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && tableAndColumnExists && length columnWords == 1 = Right (MaxColumn tableName columnName whereFilter)
       | tableNameExists tableName && all (columnNameExists tableName) columnNames = Right (SelectColumns tableName columnNames whereFilter)

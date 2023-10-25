@@ -103,6 +103,9 @@ main = hspec $ do
     it "should parse 'SELECT column1, column2 FROM employees;' correctly" $ do
       parseStatement "SELECT id, name FROM employees;" `shouldBe` Right (SelectColumns "employees" ["id", "name"] Nothing)
 
+    it "should parse 'SELECT name, avg(id) FROM employees;' as bad statement" $ do
+      parseStatement "SELECT name, avg(id) FROM employees;" `shouldBe` Left "Unsupported or invalid statement"
+
     it "should return an error for statements without semicolon for SELECT" $ do
       parseStatement "SELECT id FROM employees" `shouldBe` Left "Unsupported or invalid statement"
 

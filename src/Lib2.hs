@@ -342,7 +342,7 @@ commaAfterWhitespaceExist (x:xs)
   | otherwise = False
 
 getColumnsRows :: [ColumnName] -> DataFrame -> ([Column], [Value])
-getColumnsRows (x:xs) (DataFrame col row) = 
+getColumnsRows (x:xs) (DataFrame col row) = ([Column x StringType] ++ getColumnsRows xs (DataFrame col row) ,(findRows (columnIndex x (findColumnIndex x col) col) row))
 
 findColumnIndex :: ColumnName -> [Column] -> Int
 findColumnIndex columnName columns = columnIndex columnName columns 0

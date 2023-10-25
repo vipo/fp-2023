@@ -76,8 +76,8 @@ parseAggregateFunction statement = parseFunctionBody
     parseFunctionBody :: Either ErrorMessage ParsedStatement
     parseFunctionBody
       | not boolStringIsValid && columnNameExists tableName boolColName || boolStringIsValid && (boolString /= "") && not (columnNameExists tableName boolColName) = Left "Unsupported or invalid statement"
-      | "avg(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && tableAndColumnExists = Right (AvgColumn tableName columnName whereFilter)
-      | "max(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && tableAndColumnExists = Right (MaxColumn tableName columnName whereFilter)
+      | "avg(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && tableAndColumnExists && length columnWords == 1 = Right (AvgColumn tableName columnName whereFilter)
+      | "max(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && tableAndColumnExists && length columnWords == 1 = Right (MaxColumn tableName columnName whereFilter)
       | tableNameExists tableName && all (columnNameExists tableName) columnNames = Right (SelectColumns tableName columnNames whereFilter)
       | otherwise = Left "Unsupported or invalid statement"
 

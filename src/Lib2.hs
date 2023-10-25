@@ -152,8 +152,8 @@ parseStatement query = case runParser p query of
         ShowTables -> case runParser stopParseAt rest of
             Left err2 -> Left err2
             Right _ -> Right query
-    where  
-        p :: Parser ParsedStatement   
+    where
+        p :: Parser ParsedStatement
         p = showTablesParser
                <|> showTableParser
                <|> selectStatementParser
@@ -161,12 +161,17 @@ parseStatement query = case runParser p query of
 
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
 executeStatement ShowTables = Right $ createTablesDataFrame findTableNames
-executeStatement  (ShowTable table) = Right (createColumnsDataFrame (columnsToList (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database))) table)
---executeStatement Select = Right 
+executeStatement (ShowTable table) = Right (createColumnsDataFrame (columnsToList (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database))) table)
+executeStatement (Select column table)
+  | doColumnsExist column (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) = Right (createSelectDataFrame 
+                                                                                                            (fst (getColumnsRows column (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)))) 
+                                                                                                            (snd (getColumnsRows column (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database))))
+                                                                                                        )
+  | otherwise = Left "Provided column name does not exist in database"
 executeStatement _ = Left "Not implemented: executeStatement for other statements"
 ---------------------------------------------------------------------------------
 
-queryStatementParser :: String -> Parser String   
+queryStatementParser :: String -> Parser String
 queryStatementParser queryStatement = Parser $ \query ->
     case take (length queryStatement) query of
         [] -> Left "Expected ;"
@@ -191,7 +196,7 @@ showTablesParser = do
     pure ShowTables
 
 ------------------------------------------------------------------------------------
- 
+
 showTableParser :: Parser ParsedStatement
 showTableParser = do
     _ <- queryStatementParser "show"
@@ -200,7 +205,7 @@ showTableParser = do
     _ <- whitespaceParser
     ShowTable <$> tableNameParser
 
-tableNameParser :: Parser TableName 
+tableNameParser :: Parser TableName
 tableNameParser = Parser $ \query ->
   case isValidTableName query of
     True ->
@@ -233,7 +238,7 @@ columnsToList (DataFrame columns _) = map getColumnName columns
 
 getColumnName :: Column -> ColumnName
 getColumnName (Column "" _) = ""
-getColumnName (Column columnname _) = columnname 
+getColumnName (Column columnname _) = columnname
 
 findTableNames :: [ColumnName]
 findTableNames = findTuples InMemoryTables.database
@@ -257,22 +262,30 @@ selectStatementParser = do
     _ <- whitespaceParser
     Select columns <$> tableNameParser
 
-
 columnNamesParser :: Parser [ColumnName]
 columnNamesParser = Parser $ \query ->
   case query == "" || (dropWhiteSpaces query) == ";" of
     True -> Left "Column name is expected"
-    False -> case toLowerString(head(split query ' ')) == "from" of
+    False -> case toLowerString (head (split query ' ')) == "from" of
       True -> Left "No column name was provided"
-      False -> case commaBetweenColumsNames(fst (splitStatementAtFrom query)) && areColumnsListedRight (fst (splitStatementAtFrom query)) && areColumnsListedRight (snd (splitStatementAtFrom query)) of
-        True ->Right ((split (dropWhiteSpaces(fst (splitStatementAtFrom query))) ','), snd (splitStatementAtFrom query))
+      False -> case commaBetweenColumsNames (fst (splitStatementAtFrom query)) && areColumnsListedRight (fst (splitStatementAtFrom query)) && areColumnsListedRight (snd (splitStatementAtFrom query)) of
+        True -> Right ((split (dropWhiteSpaces (fst (splitStatementAtFrom query))) ','), snd (splitStatementAtFrom query))
         False -> Left "Column names are not listed right or from is missing"
 
-areColumnsListedRight :: String -> Bool --zodis -> whitespace rekursija -> kablelis -> whitespace rekursija -> zodis -> from
+areColumnsListedRight :: String -> Bool
 areColumnsListedRight str
   | str == "" = False
-  | last (dropWhiteSpaces str) == ','  || head (dropWhiteSpaces str) == ',' = False
+  | last (dropWhiteSpaces str) == ','  || head (dropWhiteSpaces str) == ',' =  False
   | otherwise = True
+
+doColumnsExist :: [ColumnName] -> DataFrame -> Bool
+doColumnsExist [] _ = True
+doColumnsExist (x:xs) df =
+    let dfColumnNames = columnsToList df
+    in
+      if x `elem` dfColumnNames
+      then doColumnsExist xs df
+      else False
 
 splitStatementAtFrom :: String -> (String, String)
 splitStatementAtFrom = go [] where
@@ -289,21 +302,20 @@ split (c:cs) delim
     where
         rest = split cs delim
 
--- tik kablelis == m chill
 commaBetweenColumsNames :: String -> Bool
 commaBetweenColumsNames [] = True
 commaBetweenColumsNames (x:xs)
   | x /= ',' && xs == "" = True
 commaBetweenColumsNames (x:y:xs)
-  | x == ' ' && y /=  ' ' && xs == "" = False 
-  | x /= ',' && y == ' ' && xs == "" = True 
-  | x /= ',' && xs == "" = True 
-  | x == ' ' && xs == "" = True 
+  | x == ' ' && y /=  ' ' && xs == "" = False
+  | x /= ',' && y == ' ' && xs == "" = True
+  | x /= ',' && xs == "" = True
+  | x == ' ' && xs == "" = True
   | x == ',' && y == ' ' && xs == "" = False
   | x == ',' && y /= ' ' && xs == "" = True
   | x /= ' ' && x /= ',' = commaBetweenColumsNames (y:xs)
   | x == ',' && y /= ' ' && y /= ',' = commaBetweenColumsNames (y:xs)
-  | x == ',' && whitespaceBeforeNameAfterCommaExist (y:xs) = commaBetweenColumsNames (dropWhiteSpacesUntilName (y:xs))  --nes viskas chill tik tada kai viskas praeita????
+  | x == ',' && whitespaceBeforeNameAfterCommaExist (y:xs) = commaBetweenColumsNames (dropWhiteSpacesUntilName (y:xs))
   | x == ' ' && commaAfterWhitespaceExist (y:xs) = commaBetweenColumsNames (y:xs)
   |otherwise = False
 
@@ -314,7 +326,7 @@ dropWhiteSpacesUntilName (x:xs)
   | otherwise = xs
 
 whitespaceBeforeNameAfterCommaExist :: String -> Bool
-whitespaceBeforeNameAfterCommaExist [] = False --nezinau ar gerai, nes jei tuscias - tai baigesi su ",", bet mes sita jau atmetem
+whitespaceBeforeNameAfterCommaExist [] = False
 whitespaceBeforeNameAfterCommaExist (x:y:xs)
   | x == ' ' && xs == "" = True
   | x /= ' ' && xs == "" = False
@@ -323,11 +335,32 @@ whitespaceBeforeNameAfterCommaExist (x:y:xs)
   | otherwise = False
 
 commaAfterWhitespaceExist :: String -> Bool
-commaAfterWhitespaceExist [] = True -- kam ta kabute, jei zodi dakalei
+commaAfterWhitespaceExist [] = True
 commaAfterWhitespaceExist (x:xs)
   | x == ' ' = commaAfterWhitespaceExist xs
   | x == ',' = True
-  | otherwise = False --nei tarpas nei kabute = prasideja zodis
+  | otherwise = False
+
+getColumnsRows :: [ColumnName] -> DataFrame -> ([Column], [Value])
+getColumnsRows (x:xs) (DataFrame col row) = 
+
+findColumnIndex :: ColumnName -> [Column] -> Int
+findColumnIndex columnName columns = columnIndex columnName columns 0
+
+columnIndex :: ColumnName -> [Column] -> Int -> Int
+columnIndex columnName ((Column name _):xs) index
+    | columnName /= name = columnIndex columnName xs (index + 1)
+    | otherwise = index
+
+findRows :: Int -> [Row] -> [Value]
+findRows index (x:xs) = findValueByIndex 0 index x ++ findRows index xs
+
+findValueByIndex :: Int -> Int -> Row -> Value
+findValueByIndex i colIndex (x:xs)
+  | i == colIndex = x
+  | otherwise = findValueByIndex i+1 colIndex xs
+
+---------------------------------------------------------------------------------------------------------------
 
 toLowerString :: String -> String
 toLowerString [] = ""
@@ -340,6 +373,9 @@ charToString c = [c]
 
 createColumnsDataFrame :: [ColumnName] -> TableName -> DataFrame
 createColumnsDataFrame columnNames columnTableName = DataFrame [Column columnTableName StringType] (map (\name ->  [StringValue name]) columnNames)
+--                     column names  values
+createSelectDataFrame :: [Column] -> [Value] -> DataFrame
+createSelectDataFrame columns rows = DataFrame columns rows
 
 createTablesDataFrame :: [TableName] -> DataFrame
 createTablesDataFrame tableNames = DataFrame [Column "Tables" StringType] (map (\name -> [StringValue name]) tableNames)

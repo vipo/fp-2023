@@ -341,8 +341,32 @@ commaAfterWhitespaceExist (x:xs)
   | x == ',' = True
   | otherwise = False
 
-getColumnsRows :: [ColumnName] -> DataFrame -> ([Column], [Value])
-getColumnsRows (x:xs) (DataFrame col row) = ([Column x StringType] ++ getColumnsRows xs (DataFrame col row) ,(findRows (columnIndex x (findColumnIndex x col) col) row))
+getColumnsRows :: [ColumnName] -> DataFrame -> ([Column], [Row])
+getColumnsRows colList (DataFrame col row) = (getColumnList colList (getColumnType colList col) , )
+  -- ([Column x StringType] ++ getColumnsRows xs (DataFrame col row) ,(findRows (columnIndex x (findColumnIndex x col) col) row))
+
+-- Reikia padirbti su row, surasti type (pagal Column priklausomai nuo index??) 
+-- (ir jei mes randam type, ar galim prie to pacio ir value pasiimt, vis tiek skaitos is to pacio row segmento) 
+-- ir sudeti (valueType Value) i row lista
+-- griebi Row info is Column [index , index+1 , index+2 ir t.t.] tai darai rejursijoj, kur ieskai vieno Row ir vis index+1 (kada baigiasi rekursija?? kai ColumnName baigias?)
+-- naudodamas kita rekursija sulipdai Row i [Row] (turrbut map, bet kada ji baigias? kai dataFrame row nebelieka ?? )
+
+---------------------------------------------------------------------------------------------
+getColumnType :: [ColumnName] -> [Column] -> [ColumnType]
+getColumnType [] _ = []
+getColumnType (x:xs) col = map (columnType col 0 (findColumnIndex x col)) getColumnType xs col
+
+columnType :: [Column] -> Int -> Int -> ColumnType
+columnType (x:xs) i colIndex 
+  | i == colIndex = getType x
+  | otherwise = columnType xs i+1 colIndex
+
+getType :: Column -> ColumnType
+getType (Column _ type) = type
+
+getColumnList :: [ColumnName] -> [ColumnType] -> [Column]
+getColumnList [] [] = []
+getColumnList (x:xs) (y:ys) = map (Column x y) getColumnList xs ys
 
 findColumnIndex :: ColumnName -> [Column] -> Int
 findColumnIndex columnName columns = columnIndex columnName columns 0
@@ -352,13 +376,24 @@ columnIndex columnName ((Column name _):xs) index
     | columnName /= name = columnIndex columnName xs (index + 1)
     | otherwise = index
 
-findRows :: Int -> [Row] -> [Value]
-findRows index (x:xs) = findValueByIndex 0 index x ++ findRows index xs
+-------------------------------------------------------------------------------------------------------
+-- findValueByIndex i colIndex (x:xs)
+--   | i == colIndex = x
+--   | otherwise = findValueByIndex i+1 colIndex xs
 
-findValueByIndex :: Int -> Int -> Row -> Value
-findValueByIndex i colIndex (x:xs)
-  | i == colIndex = x
-  | otherwise = findValueByIndex i+1 colIndex xs
+
+
+-- getValueList :: [ColumnName] -> [Value] -> [Row]
+-- getValueList (x:xs) val = 
+
+
+-- findRows :: Int -> [Row] -> [Value]
+-- findRows index (x:xs) = findValueByIndex 0 index x ++ findRows index xs
+
+-- findValueByIndex :: Int -> Int -> Row -> Value
+-- findValueByIndex i colIndex (x:xs)
+--   | i == colIndex = x
+--   | otherwise = findValueByIndex i+1 colIndex xs
 
 ---------------------------------------------------------------------------------------------------------------
 

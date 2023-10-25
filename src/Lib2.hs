@@ -64,10 +64,21 @@ type Database = [(TableName, DataFrame)]
 
 type ColumnName = String
 
+data Aggregate = Aggregate AggregateFunction ColumnName
+  deriving (Show, Eq)
+
+data AggregateFunction = Sum | Max
+  deriving (Show, Eq)
+
+data SpecialSelect =
+  SelectAggregate Aggregate
+  | SelectColumns [ColumnName]
+  deriving (Show, Eq)
+
 -- Keep the type, modify constructors
 data ParsedStatement =
   Select {
-    column :: [ColumnName],
+    selectQuery :: SpecialSelect, --column :: [ColumnName],
     table :: TableName
   }
   | ShowTable {
@@ -123,12 +134,10 @@ instance Alternative Parser where
 
 char :: Char -> Parser Char
 char c = Parser charP
-  where charP []                 = Left "No table name was provided"
+  where charP []                 = Left "Empty input"
         charP (x:xs) | x == c    = Right (c, xs)
-                     | otherwise = Left "Table with this name does not exist or ; is missing"
+                     | otherwise = Left ("Expected " ++ [c])
 
-string :: String -> Parser String
-string = mapM char
 
 optional :: Parser a -> Parser (Maybe a)
 optional p = do
@@ -136,22 +145,21 @@ optional p = do
   return (Just result)
   <|> return Nothing
 
-
 ----------------------------------------------------------------------------------
 
 parseStatement :: String -> Either ErrorMessage ParsedStatement
 parseStatement query = case runParser p query of
     Left err1 -> Left err1
     Right (query, rest) -> case query of
-        Select _ _ -> case runParser stopParseAt rest of
-          Left err2 -> Left err2
-          Right _ -> Right query
-        ShowTable _ -> case runParser stopParseAt rest of
-          Left err2 -> Left err2
-          Right _ -> Right query
         ShowTables -> case runParser stopParseAt rest of
             Left err2 -> Left err2
             Right _ -> Right query
+        ShowTable _ -> case runParser stopParseAt rest of
+          Left err2 -> Left err2
+          Right _ -> Right query
+        Select _ _ -> case runParser stopParseAt rest of
+          Left err2 -> Left err2
+          Right _ -> Right query
     where
         p :: Parser ParsedStatement
         p = showTablesParser
@@ -162,12 +170,21 @@ parseStatement query = case runParser p query of
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
 executeStatement ShowTables = Right $ createTablesDataFrame findTableNames
 executeStatement (ShowTable table) = Right (createColumnsDataFrame (columnsToList (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database))) table)
-executeStatement (Select column table)
-  | doColumnsExist column (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) = Right (createSelectDataFrame 
-                                                                                                            (fst (getColumnsRows column (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)))) 
-                                                                                                            (snd (getColumnsRows column (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database))))
-                                                                                                        )
-  | otherwise = Left "Provided column name does not exist in database"
+executeStatement (Select selectQ table) =
+  case selectQ of 
+  SelectColumns cols -> do 
+    case doColumnsExist cols (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) of 
+      True -> Right (createSelectDataFrame
+                    (fst (getColumnsRows cols (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database))))
+                    (snd (getColumnsRows cols (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database))))
+                    )
+      False -> Left "Provided column name does not exist in database"
+  SelectAggregate (Aggregate aggF colN) -> do
+    case aggF of
+      Sum -> do 
+        Left "Sum"
+      Max -> do
+        Left "Max"
 executeStatement _ = Left "Not implemented: executeStatement for other statements"
 ---------------------------------------------------------------------------------
 
@@ -202,7 +219,7 @@ showTableParser = do
     _ <- queryStatementParser "show"
     _ <- whitespaceParser
     _ <- queryStatementParser "table"
-    _ <- whitespaceParser
+    _ <- optional whitespaceParser
     ShowTable <$> tableNameParser
 
 tableNameParser :: Parser TableName
@@ -215,10 +232,10 @@ tableNameParser = Parser $ \query ->
     False -> Left "Query does not end with ; or contains unnecessary words after table name"
 
 isValidTableName :: String -> Bool
-isValidTableName str =
-  if last str == ';' then (case isOneWord str of
-  True -> True
-  False -> False) else False
+isValidTableName str
+  | dropWhiteSpaces str == "" = False
+  | last str == ';' = isOneWord (init str)
+  | otherwise = False
 
 isOneWord :: String -> Bool
 isOneWord [] = True
@@ -250,17 +267,66 @@ findTuples db = map firstFromTuple db
 firstFromTuple :: (ColumnName, DataFrame) -> ColumnName
 firstFromTuple = fst
 
---SELECT flag, value FROM flags;
+-----------------------------------------------------------------------------------------------------------
 
 selectStatementParser :: Parser ParsedStatement
 selectStatementParser = do
     _ <- queryStatementParser "select"
     _ <- whitespaceParser
-    columns <- columnNamesParser
+    specialSelect <- parseSelectData
     _ <- whitespaceParser
     _ <- queryStatementParser "from"
     _ <- whitespaceParser
-    Select columns <$> tableNameParser
+    Select specialSelect <$> tableNameParser
+
+parseSelectData :: Parser SpecialSelect
+parseSelectData = tryParseAggregate <|> tryParseColumn
+  where
+    tryParseAggregate = do
+        SelectAggregate <$> aggregateParser
+    tryParseColumn = do
+        SelectColumns <$> columnNamesParser
+
+aggregateParser :: Parser Aggregate
+aggregateParser = do
+    func <- aggregateFunctionParser
+    _ <- optional whitespaceParser
+    _ <- char '('
+    _ <- optional whitespaceParser
+    columnName <- columnNameParser
+    _ <- optional whitespaceParser
+    _ <- char ')'
+    pure $ Aggregate func columnName
+
+aggregateFunctionParser :: Parser AggregateFunction
+aggregateFunctionParser = sumParser <|> maxParser
+  where
+    sumParser = do
+        _ <- queryStatementParser "sum"
+        pure Sum
+    maxParser = do
+        _ <- queryStatementParser "max"
+        pure Max
+
+columnNameParser :: Parser ColumnName
+columnNameParser = Parser $ \query ->  
+  case isOneWord' query of
+    True -> Right (fst (splitStatementAtParentheses query), snd (splitStatementAtParentheses query))
+    False -> Left ("There is more than one column name in aggregation function or ')' is missing")
+
+isOneWord' :: String -> Bool
+isOneWord' (x:xs)
+  | x == ',' = False
+  | x == ' ' = isOneWord' xs
+  | x == ')' = True
+  | otherwise = isOneWord' xs
+
+splitStatementAtParentheses :: String -> (String, String)
+splitStatementAtParentheses = go [] where
+  go _ [] = ("", "")
+  go prefix str@(x:xs)
+    | ")" `isPrefixOf` toLowerString str = (reverse prefix, str)
+    | otherwise = go (x:prefix) xs
 
 columnNamesParser :: Parser [ColumnName]
 columnNamesParser = Parser $ \query ->
@@ -342,31 +408,37 @@ commaAfterWhitespaceExist (x:xs)
   | otherwise = False
 
 getColumnsRows :: [ColumnName] -> DataFrame -> ([Column], [Row])
-getColumnsRows colList (DataFrame col row) = (getColumnList colList (getColumnType colList col) , )
-  -- ([Column x StringType] ++ getColumnsRows xs (DataFrame col row) ,(findRows (columnIndex x (findColumnIndex x col) col) row))
+getColumnsRows colList (DataFrame col row) = (getColumnList colList (getColumnType colList col) , getNewRows col row colList)
 
--- Reikia padirbti su row, surasti type (pagal Column priklausomai nuo index??) 
--- (ir jei mes randam type, ar galim prie to pacio ir value pasiimt, vis tiek skaitos is to pacio row segmento) 
--- ir sudeti (valueType Value) i row lista
--- griebi Row info is Column [index , index+1 , index+2 ir t.t.] tai darai rejursijoj, kur ieskai vieno Row ir vis index+1 (kada baigiasi rekursija?? kai ColumnName baigias?)
--- naudodamas kita rekursija sulipdai Row i [Row] (turrbut map, bet kada ji baigias? kai dataFrame row nebelieka ?? )
+getNewRows :: [Column] -> [Row] -> [ColumnName] -> [Row]
+getNewRows _ [] _ = []
+getNewRows cols (x:xs) colNames = getNewRow x cols colNames : getNewRows cols xs colNames
+
+getNewRow :: [Value] -> [Column] -> [ColumnName] -> [Value]
+getNewRow _ _ [] = []
+getNewRow row cols (x:xs) = getValueFromRow row (findColumnIndex x cols) 0 : getNewRow row cols xs
+
+getValueFromRow :: Row -> Int -> Int -> Value
+getValueFromRow (x:xs) index i
+  | index == i = x
+  | otherwise = getValueFromRow xs index (i+1)
 
 ---------------------------------------------------------------------------------------------
 getColumnType :: [ColumnName] -> [Column] -> [ColumnType]
 getColumnType [] _ = []
-getColumnType (x:xs) col = map (columnType col 0 (findColumnIndex x col)) getColumnType xs col
+getColumnType (x:xs) col = columnType col 0 (findColumnIndex x col) : getColumnType xs col
 
 columnType :: [Column] -> Int -> Int -> ColumnType
-columnType (x:xs) i colIndex 
+columnType (x:xs) i colIndex
   | i == colIndex = getType x
-  | otherwise = columnType xs i+1 colIndex
+  | otherwise = columnType xs (i+1) colIndex
 
 getType :: Column -> ColumnType
-getType (Column _ type) = type
+getType (Column _ colType) = colType
 
 getColumnList :: [ColumnName] -> [ColumnType] -> [Column]
 getColumnList [] [] = []
-getColumnList (x:xs) (y:ys) = map (Column x y) getColumnList xs ys
+getColumnList (x:xs) (y:ys) = [(Column x y)] ++ getColumnList xs ys
 
 findColumnIndex :: ColumnName -> [Column] -> Int
 findColumnIndex columnName columns = columnIndex columnName columns 0
@@ -375,25 +447,6 @@ columnIndex :: ColumnName -> [Column] -> Int -> Int
 columnIndex columnName ((Column name _):xs) index
     | columnName /= name = columnIndex columnName xs (index + 1)
     | otherwise = index
-
--------------------------------------------------------------------------------------------------------
--- findValueByIndex i colIndex (x:xs)
---   | i == colIndex = x
---   | otherwise = findValueByIndex i+1 colIndex xs
-
-
-
--- getValueList :: [ColumnName] -> [Value] -> [Row]
--- getValueList (x:xs) val = 
-
-
--- findRows :: Int -> [Row] -> [Value]
--- findRows index (x:xs) = findValueByIndex 0 index x ++ findRows index xs
-
--- findValueByIndex :: Int -> Int -> Row -> Value
--- findValueByIndex i colIndex (x:xs)
---   | i == colIndex = x
---   | otherwise = findValueByIndex i+1 colIndex xs
 
 ---------------------------------------------------------------------------------------------------------------
 
@@ -408,8 +461,8 @@ charToString c = [c]
 
 createColumnsDataFrame :: [ColumnName] -> TableName -> DataFrame
 createColumnsDataFrame columnNames columnTableName = DataFrame [Column columnTableName StringType] (map (\name ->  [StringValue name]) columnNames)
---                     column names  values
-createSelectDataFrame :: [Column] -> [Value] -> DataFrame
+
+createSelectDataFrame :: [Column] -> [Row] -> DataFrame
 createSelectDataFrame columns rows = DataFrame columns rows
 
 createTablesDataFrame :: [TableName] -> DataFrame

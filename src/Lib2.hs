@@ -180,12 +180,38 @@ executeStatement (Select selectQ table) =
                     )
       False -> Left "Provided column name does not exist in database"
   SelectAggregate (Aggregate aggF colN) -> do
-    case aggF of
-      Sum -> do 
-        Left "Sum"
-      Max -> do
-        Left "Max"
+    case validateDataFrame (fromMaybe (DataFrame [] []) (findTableByName InMemoryTables.database table)) of  -- removinu maybe dedama i list ir td tvarkau, jei turit lengvesni buda - plz use
+      True -> case aggF of
+        Sum -> do 
+          Left "Sum"
+        Max -> do
+          Left "Max"
+      False -> Left "Can not show this table as it is invalid in database"
 executeStatement _ = Left "Not implemented: executeStatement for other statements"
+---------------------------------------------------------------------------------
+-- might need to delete later (check only after everything is done)
+
+validateDataFrame :: DataFrame -> Bool
+validateDataFrame dataFrame
+  | not (checkRowSizes dataFrame) = False
+  | not (checkTupleMatch (zipColumnsAndValues dataFrame)) = False
+  | otherwise = True
+
+checkTupleMatch :: [(Column, Value)] -> Bool
+checkTupleMatch [] = True  -- Base case when the list is empty
+checkTupleMatch ((column, value) : rest) =
+   case (column, value) of
+    (Column _ IntegerType, IntegerValue _) -> checkTupleMatch rest
+    (Column _ StringType, StringValue _) -> checkTupleMatch rest
+    (Column _ BoolType, BoolValue _) -> checkTupleMatch rest
+    _ -> False  -- Match any other case
+
+zipColumnsAndValues :: DataFrame -> [(Column, Value)]
+zipColumnsAndValues (DataFrame columns rows) = [(col, val) | row <- rows, (col, val) <- zip columns row]
+
+checkRowSizes :: DataFrame -> Bool
+checkRowSizes (DataFrame columns rows) = all (\row -> length row == length columns) rows
+
 ---------------------------------------------------------------------------------
 
 queryStatementParser :: String -> Parser String
@@ -273,14 +299,14 @@ selectStatementParser :: Parser ParsedStatement
 selectStatementParser = do
     _ <- queryStatementParser "select"
     _ <- whitespaceParser
-    specialSelect <- parseSelectData
+    specialSelect <- selectDataParser
     _ <- whitespaceParser
     _ <- queryStatementParser "from"
     _ <- whitespaceParser
     Select specialSelect <$> tableNameParser
 
-parseSelectData :: Parser SpecialSelect
-parseSelectData = tryParseAggregate <|> tryParseColumn
+selectDataParser :: Parser SpecialSelect
+selectDataParser = tryParseAggregate <|> tryParseColumn
   where
     tryParseAggregate = do
         SelectAggregate <$> aggregateParser

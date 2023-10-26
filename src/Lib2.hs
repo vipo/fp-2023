@@ -59,27 +59,29 @@ import Data.List (isPrefixOf)
 import Data.Maybe (fromMaybe)
 import Text.ParserCombinators.ReadP (get)
 import Data.Foldable (find)
+import Data.Monoid (All)
+import GHC.Windows (errCodeToIOError)
 
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
 
 type ColumnName = String
 
-data Aggregate = Aggregate AggregateFunction ColumnName
-  deriving (Show, Eq)
+-- data Aggregate = Aggregate AggregateFunction ColumnName
+--   deriving (Show, Eq)
 
 data AggregateFunction = Sum | Max
   deriving (Show, Eq)
 
-data SpecialSelect =
-  SelectAggregate Aggregate
-  | SelectColumns [ColumnName]
+data SpecialSelect = SelectAggregate AggregateList | SelectColumns [ColumnName]
   deriving (Show, Eq)
+
+type AggregateList = [(AggregateFunction, ColumnName)]
 
 -- Keep the type, modify constructors
 data ParsedStatement =
   Select {
-    selectQuery :: SpecialSelect, --column :: [ColumnName],
+    selectQuery :: SpecialSelect, --column :: [ColumnName]
     table :: TableName
   }
   | ShowTable {
@@ -180,23 +182,29 @@ executeStatement (Select selectQ table) =
                     (snd (getColumnsRows cols (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database))))
                     )
       False -> Left "Provided column name does not exist in database"
-  SelectAggregate (Aggregate aggF colN) -> do
-    case doColumnsExist [dropWhiteSpaces colN] (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) of
-      True -> case validateDataFrame (fromMaybe (DataFrame [] []) (findTableByName InMemoryTables.database table)) of  -- removinu maybe dedama i list ir td tvarkau, jei turit lengvesni buda - plz use
-        True -> case aggF of
-          Sum -> do 
-            Left "Sum"
-          Max -> do
-            _ <- Right (createSelectDataFrame
-                    (fst (getColumnsRows [colN] (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database))))
-                    ( findMax (snd (getColumnsRows [colN] (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)))))
-                    )
-            Left "Max"
-        False -> Left "Can not show this table as it is invalid in database"
-      False -> Left ("Provided column name does not exist in table '" ++ table ++ "'")
+  SelectAggregate ((func, colName) : xs) -> do
+
+  -- SelectAggregate (Aggregate aggF colN) -> do
 executeStatement _ = Left "Not implemented: executeStatement for other statements"  
 
 ---------------------------------------------------------------------------------
+
+processSelectAggregate :: AggregateFunction -> ColumnName -> [Row]
+processSelectAggregate func colName 
+
+    -- case doColumnsExist [dropWhiteSpaces colName] (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) of
+    --   True -> case validateDataFrame (fromMaybe (DataFrame [] []) (findTableByName InMemoryTables.database table)) of  -- removinu maybe dedama i list ir td tvarkau, jei turit lengvesni buda - plz use
+    --     True -> case func of
+    --       Sum -> do 
+    --         Left "Sum"
+    --       Max -> do
+    --         _ <- Right (createSelectDataFrame
+    --                 (fst (getColumnsRows [colName] (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database))))
+    --                 ( findMax (snd (getColumnsRows [colName] (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)))))
+    --                 )
+    --         Left "Max"
+    --     False -> Left "Can not show this table as it is invalid in database"
+    --   False -> Left ("Provided column name does not exist in table '" ++ table ++ "'")
 
 instance Ord Value where
     compare val1 val2 
@@ -338,30 +346,49 @@ selectDataParser :: Parser SpecialSelect
 selectDataParser = tryParseAggregate <|> tryParseColumn
   where
     tryParseAggregate = do
-        SelectAggregate <$> aggregateParser
+        SelectAggregate <$> aggregateListParser
     tryParseColumn = do
         SelectColumns <$> columnNamesParser
 
-aggregateParser :: Parser Aggregate
-aggregateParser = do
-    func <- aggregateFunctionParser
-    _ <- optional whitespaceParser
-    _ <- char '('
-    _ <- optional whitespaceParser
-    columnName <- columnNameParser
-    _ <- optional whitespaceParser
-    _ <- char ')'
-    pure $ Aggregate func columnName
+aggregateListParser :: Parser AggregateList
+aggregateListParser = Parser $ \query ->
+    case query /= "" || (dropWhiteSpaces query) /= ";" of
+    False -> Left "Column name is expected"
+    True -> case toLowerString (head (split query ' ')) == "from" of
+      True -> Left "No aggregate function was provided"
+      False -> case commaBetweenColumsNames (fst (splitStatementAtFrom query)) && areColumnsListedRight (fst (splitStatementAtFrom query)) && areColumnsListedRight (snd (splitStatementAtFrom query)) of
+        True -> case Right ( (getAggregateList (split (dropWhiteSpaces (fst (splitStatementAtFrom query))) ',')), snd (splitStatementAtFrom query)) of
+          Left err -> Left err
+          Right aggregateList -> Right ( (getAggregateList (split (dropWhiteSpaces (fst (splitStatementAtFrom query))) ',')), snd (splitStatementAtFrom query))
+        False -> Left "Aggregation functions are not listed right or from is missing"
 
-aggregateFunctionParser :: Parser AggregateFunction
-aggregateFunctionParser = sumParser <|> maxParser
-  where
-    sumParser = do
-        _ <- queryStatementParser "sum"
-        pure Sum
-    maxParser = do
-        _ <- queryStatementParser "max"
-        pure Max
+getAggregateList :: [String] -> Either ErrorMessage [(AggregateFunction, ColumnName)]
+getAggregateList [] = Right []
+getAggregateList (x:xs)
+  | "max(" `isPrefixOf` (dropWhiteSpaces x) && last (dropWhiteSpaces x) == ')' = Right ((Max, init (drop 4 (dropWhiteSpaces x))) ++ getAggregateList xs)
+  | "sum(" `isPrefixOf` (dropWhiteSpaces x) && last (dropWhiteSpaces x) == ')' = Right ((Sum, init (drop 4 (dropWhiteSpaces x))) ++ getAggregateList xs)
+  | otherwise = Left "Incorrect syntax of aggregate functions"
+
+-- aggregateParser :: Parser Aggregate
+-- aggregateParser = do
+--     func <- aggregateFunctionParser
+--     _ <- optional whitespaceParser
+--     _ <- char '('
+--     _ <- optional whitespaceParser
+--     columnName <- columnNameParser
+--     _ <- optional whitespaceParser
+--     _ <- char ')'
+--     pure $ Aggregate func columnName
+
+-- aggregateFunctionParser :: Parser AggregateFunction
+-- aggregateFunctionParser = sumParser <|> maxParser
+--   where
+--     sumParser = do
+--         _ <- queryStatementParser "sum"
+--         pure Sum
+--     maxParser = do
+--         _ <- queryStatementParser "max"
+--         pure Max
 
 columnNameParser :: Parser ColumnName
 columnNameParser = Parser $ \query ->  

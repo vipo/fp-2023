@@ -127,12 +127,7 @@ executeStatement (SelectColumns tableName columnNames whereCondition) =
   case lookup tableName database of
     Just df ->
       case mapM (`findColumnIndex` df) columnNames of
-        Just columnIndices ->
-          let realCols = columns (executeWhere whereCondition tableName)
-              realRows = getDataFrameRows (executeWhere whereCondition tableName)
-              selectedColumns = map (realCols !!) columnIndices
-              selectedRows = map (\row -> map (row !!) columnIndices) realRows
-           in Right $ DataFrame selectedColumns selectedRows
+        Just columnIndices -> selectColumnsFromDataFrame whereCondition tableName columnIndices
         Nothing -> Left $ "One or more columns not found in table " ++ tableName
     Nothing -> Left $ "Table " ++ tableName ++ " not found"
 executeStatement (MaxColumn tableName columnName whereCondition) = case sqlMax (executeWhere whereCondition tableName) columnName of
@@ -159,7 +154,15 @@ filterRowsByBoolColumn name col bool
     rowCellAtIndexIsBool boolVal row index = case index of
       Just ind -> row !! ind == BoolValue boolVal
       Nothing -> False
-      
+--selectColumns
+selectColumnsFromDataFrame :: Maybe WhereClause -> TableName -> [Int] -> Either ErrorMessage DataFrame
+selectColumnsFromDataFrame whereCondition tableName columnIndices = do
+    let realCols = columns (executeWhere whereCondition tableName)
+        realRows = getDataFrameRows (executeWhere whereCondition tableName)
+        selectedColumns = map (realCols !!) columnIndices
+        selectedRows = map (\row -> map (row !!) columnIndices) realRows
+    Right $ DataFrame selectedColumns selectedRows
+
 --AVG agregate function
 averageOfIntValues :: [Value] -> Either ErrorMessage DataFrame
 averageOfIntValues validIntValues 

@@ -181,18 +181,15 @@ executeStatement (Select selectQ table) =
                     )
       False -> Left "Provided column name does not exist in database"
   SelectAggregate (Aggregate aggF colN) -> do
-    case isSpacesBetweenWords colN of
-      True -> case doColumnsExist [dropWhiteSpaces colN] (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) of
-        True -> case validateDataFrame (fromMaybe (DataFrame [] []) (findTableByName InMemoryTables.database table)) of  -- removinu maybe dedama i list ir td tvarkau, jei turit lengvesni buda - plz use
-          True -> case aggF of
-            --please use dropwhitespaces for colN, otherwise nothing will work
-            Sum -> do 
-              Left "Sum"
-            Max -> do
-              Left "Max"
-          False -> Left "Can not show this table as it is invalid in database"
-        False -> Left ("Provided column name does not exist in table '" ++ table ++ "'")
-      False -> Left "There is more than one column name in aggregation function"
+    case doColumnsExist [dropWhiteSpaces colN] (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) of
+      True -> case validateDataFrame (fromMaybe (DataFrame [] []) (findTableByName InMemoryTables.database table)) of  -- removinu maybe dedama i list ir td tvarkau, jei turit lengvesni buda - plz use
+        True -> case aggF of
+          Sum -> do 
+            Left "Sum"
+          Max -> do
+            Left "Max"
+        False -> Left "Can not show this table as it is invalid in database"
+      False -> Left ("Provided column name does not exist in table '" ++ table ++ "'")
 executeStatement _ = Left "Not implemented: executeStatement for other statements"
 ---------------------------------------------------------------------------------
 -- might need to delete later (check only after everything is done)
@@ -343,7 +340,9 @@ aggregateFunctionParser = sumParser <|> maxParser
 columnNameParser :: Parser ColumnName
 columnNameParser = Parser $ \query ->  
   case isOneWord' query of
-    True -> Right (fst (splitStatementAtParentheses query), snd (splitStatementAtParentheses query))
+    True -> case isSpacesBetweenWords (fst (splitStatementAtParentheses query)) of
+      True -> Right (dropWhiteSpaces (fst (splitStatementAtParentheses query)), snd (splitStatementAtParentheses query))
+      False -> Left "There is more than one column name in aggregation function"
     False -> Left ("There is more than one column name in aggregation function or ')' is missing")
 
 isOneWord' :: String -> Bool

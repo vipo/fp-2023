@@ -36,7 +36,8 @@ module Lib2
     toLowerString,
     charToString,
     createColumnsDataFrame,
-    createColumnsDataFrame,
+    createSelectDataFrame,
+    createTablesDataFrame,
     stopParseAt
   )
 where
@@ -181,9 +182,10 @@ executeStatement (Select selectQ table) =
       False -> Left "Provided column name does not exist in database"
   SelectAggregate (Aggregate aggF colN) -> do
     case isSpacesBetweenWords colN of
-      True -> case doColumnsExist [colN] (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) of
+      True -> case doColumnsExist [dropWhiteSpaces colN] (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) of
         True -> case validateDataFrame (fromMaybe (DataFrame [] []) (findTableByName InMemoryTables.database table)) of  -- removinu maybe dedama i list ir td tvarkau, jei turit lengvesni buda - plz use
           True -> case aggF of
+            --please use dropwhitespaces for colN, otherwise nothing will work
             Sum -> do 
               Left "Sum"
             Max -> do

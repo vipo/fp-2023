@@ -180,13 +180,17 @@ executeStatement (Select selectQ table) =
                     )
       False -> Left "Provided column name does not exist in database"
   SelectAggregate (Aggregate aggF colN) -> do
-    case validateDataFrame (fromMaybe (DataFrame [] []) (findTableByName InMemoryTables.database table)) of  -- removinu maybe dedama i list ir td tvarkau, jei turit lengvesni buda - plz use
-      True -> case aggF of
-        Sum -> do 
-          Left "Sum"
-        Max -> do
-          Left "Max"
-      False -> Left "Can not show this table as it is invalid in database"
+    case isSpacesBetweenWords colN of
+      True -> case doColumnsExist [colN] (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) of
+        True -> case validateDataFrame (fromMaybe (DataFrame [] []) (findTableByName InMemoryTables.database table)) of  -- removinu maybe dedama i list ir td tvarkau, jei turit lengvesni buda - plz use
+          True -> case aggF of
+            Sum -> do 
+              Left "Sum"
+            Max -> do
+              Left "Max"
+          False -> Left "Can not show this table as it is invalid in database"
+        False -> Left ("Provided column name does not exist in table '" ++ table ++ "'")
+      False -> Left "There is more than one column name in aggregation function"
 executeStatement _ = Left "Not implemented: executeStatement for other statements"
 ---------------------------------------------------------------------------------
 -- might need to delete later (check only after everything is done)
@@ -346,6 +350,12 @@ isOneWord' (x:xs)
   | x == ' ' = isOneWord' xs
   | x == ')' = True
   | otherwise = isOneWord' xs
+
+isSpacesBetweenWords :: String -> Bool
+isSpacesBetweenWords [] = True
+isSpacesBetweenWords (x:xs)
+  | x == ' ' = dropWhiteSpacesUntilName xs == ""
+  | otherwise = isSpacesBetweenWords xs
 
 splitStatementAtParentheses :: String -> (String, String)
 splitStatementAtParentheses = go [] where

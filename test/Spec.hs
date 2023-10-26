@@ -55,3 +55,20 @@ main = hspec $ do
       Lib2.parseStatement "SHOW TABLES     ;         " `shouldSatisfy` isLeft
     it "shows the list of tables" $ do
       Lib2.parseStatement "SHOW TABLES     ;" `shouldBe` Right ShowTables
+      --reikes sutvarkyti kai bus pilnas konstruktorius su where 
+    it "shows the right column" $ do
+      Lib2.parseStatement "select id from employees;" `shouldSatisfy` isRight
+    it "shows right multiple columns" $ do
+      Lib2.parseStatement "select id, name from employees;" `shouldSatisfy` isRight
+    it "shows the list of tables" $ do
+      Lib2.parseStatement "select id, name from employees;" `shouldSatisfy` isRight
+    it "doesn't execute queries without a ';'" $ do
+      Lib2.parseStatement "select id, name from employees" `shouldSatisfy` isLeft
+    it "doesn't execute queries with fake columns" $ do
+      Lib2.parseStatement "select vardas from employees;" `shouldSatisfy` isLeft
+    it "doesn't execute queries with existing columns and fake tables" $ do
+      Lib2.parseStatement "select id from darbuotojai;" `shouldSatisfy` isLeft
+    it "shows the max of the specified column from the specified table" $ do
+      Lib2.parseStatement "select max(id) from employees" `shouldSatisfy` isRight
+    it "shows multiple aggregate functions" $ do
+      Lib2.parseStatement "select max(id), sum(id) from employees" `shouldSatisfy` isRight

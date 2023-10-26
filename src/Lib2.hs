@@ -77,8 +77,8 @@ parseAggregateFunction statement = parseFunctionBody
     parseFunctionBody :: Either ErrorMessage ParsedStatement
     parseFunctionBody
       | not boolStringIsValid && columnNameExists tableName boolColName || boolStringIsValid && (boolString /= "") && not (columnNameExists tableName boolColName) = Left "Unsupported or invalid statement"
-      | isPrefixOf "avg(" (head columnWords) && isSuffixOf ")" (head columnWords) && tableAndColumnExists && length columnWords == 1 = Right (AvgColumn tableName columnName whereFilter)
-      | isPrefixOf "max(" (head columnWords) && isSuffixOf ")" (head columnWords) && tableAndColumnExists && length columnWords == 1 = Right (MaxColumn tableName columnName whereFilter)
+      | "avg(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && tableAndColumnExists && length columnWords == 1 = Right (AvgColumn tableName columnName whereFilter)
+      | "max(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && tableAndColumnExists && length columnWords == 1 = Right (MaxColumn tableName columnName whereFilter)
       | tableNameExists tableName && all (columnNameExists tableName) columnNames = Right (SelectColumns tableName columnNames whereFilter)
       | otherwise = Left "Unsupported or invalid statement"
 
@@ -93,9 +93,9 @@ parseSemiCaseSensitive statement = convertedStatement
 
 wordToLowerSensitive :: String -> String
 wordToLowerSensitive word
-  | (toLower <$> word) `elem` keywords = map toLower word
-  | isPrefixOf "avg(" (map toLower word) && isSuffixOf ")" word = "avg(" ++ drop 4 (init word) ++ ")"
-  | isPrefixOf "max(" (map toLower word) && isSuffixOf ")" word = "max(" ++ drop 4 (init word) ++ ")"
+  | map toLower word `elem` keywords = map toLower word
+  | "avg(" `isPrefixOf` map toLower word && ")" `isSuffixOf` word = "avg(" ++ drop 4 (init word) ++ ")"
+  | "max(" `isPrefixOf` map toLower word && ")" `isSuffixOf` word = "max(" ++ drop 4 (init word) ++ ")"
   | otherwise = word
   where
     keywords = ["select", "from", "where", "show", "table", "tables", "false", "true", "and", "is"]
@@ -149,7 +149,7 @@ executeWhere whereClause tableName = case whereClause of
 -- Filter rows based on whether the specified column's value is TRUE or FALSE.
 filterRowsByBoolColumn :: TableName -> String -> Bool -> Either ErrorMessage DataFrame
 filterRowsByBoolColumn name col bool
-  | isTableInDatabase name && (col `elem` getColNameList (columns (getDataFrameByName name))) && (getColumnType (getColumnByName col (columns (getDataFrameByName name))) == BoolType) = Right $ getRowsByBool bool (getDataFrameRows (getDataFrameByName name))
+  | isTableInDatabase name && col `elem` getColNameList (columns (getDataFrameByName name)) && getColumnType (getColumnByName col (columns (getDataFrameByName name))) == BoolType = Right $ getRowsByBool bool (getDataFrameRows (getDataFrameByName name))
   | otherwise = Left "Dataframe does not exist or does not contain column by specified name or column is not of type bool"
   where
     getRowsByBool :: Bool -> [Row] -> DataFrame

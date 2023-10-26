@@ -36,14 +36,6 @@ instance ToBValue MetaData where
         ("last_login", BInteger $ lastLogin md)
         ]
 
-instance ToBValue User where
-    toBValue :: User -> BValue
-    toBValue u = BDict [
-        ("name", BString $ name u),
-        ("age", toBValue (age u)),
-        ("meta_data", toBValue (metaData u))
-        ]
-
 user :: User
 user = User "Vipo" 16 (MetaData ["fp", "hs"] 1000)
 

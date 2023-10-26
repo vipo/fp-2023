@@ -51,18 +51,19 @@ mapStatementType statement = case statement of
   "select" : rest -> parseAggregateFunction rest
   _ -> Left "Unsupported or invalid statement"
 
+parseFromAndWhere :: [String] -> ([String], [String])
+parseFromAndWhere fromAndWhere
+  | length fromAndWhere == 6 && head fromAndWhere == "from" && fromAndWhere !! 2 == "where" && fromAndWhere !! 4 == "is" = break (== "where") fromAndWhere
+  | length fromAndWhere == 2 && head fromAndWhere == "from" = (["from", fromAndWhere !! 1], ["where", "", "is", ""])
+  | otherwise = (["from", ""], ["where", "", "is", ""])
+    
 parseAggregateFunction :: [String] -> Either ErrorMessage ParsedStatement
 parseAggregateFunction statement = parseFunctionBody
   where
     (columnWords, fromAndWhere) = break (== "from") statement
-    (["from", tableName], ["where", boolColName, "is", boolString]) =
-      if length fromAndWhere == 6 && head fromAndWhere == "from" && fromAndWhere !! 2 == "where" && fromAndWhere !! 4 == "is"
-        then break (== "where") fromAndWhere
-        else
-          if length fromAndWhere == 2 && head fromAndWhere == "from"
-            then (["from", fromAndWhere !! 1], ["where", "", "is", ""])
-            else (["from", ""], ["where", "", "is", ""])
-    boolStringIsValid = boolString == "true" || boolString == "false"
+    (["from", tableName], ["where", boolColName, "is", boolString]) = parseFromAndWhere fromAndWhere
+      
+    boolStringIsValid = boolString == "true" || boolString == "false" || boolString == ""
     parsedBoolString = boolString == "true"
     whereFilter =
       if boolStringIsValid && columnNameExists tableName boolColName && getColumnType (getColumnByName boolColName (columns (getDataFrameByName tableName))) == BoolType
@@ -72,11 +73,12 @@ parseAggregateFunction statement = parseFunctionBody
     tableAndColumnExists = tableNameExists tableName && columnNameExists tableName columnName
     columnString = unwords columnWords
     columnNames = map (dropWhile (== ' ')) $ splitByComma columnString
-
+  
     parseFunctionBody :: Either ErrorMessage ParsedStatement
     parseFunctionBody
-      | "avg(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && tableAndColumnExists = Right (AvgColumn tableName columnName whereFilter)
-      | "max(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && tableAndColumnExists = Right (MaxColumn tableName columnName whereFilter)
+      | not boolStringIsValid && columnNameExists tableName boolColName || boolStringIsValid && (boolString /= "") && not (columnNameExists tableName boolColName) = Left "Unsupported or invalid statement"
+      | "avg(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && tableAndColumnExists && length columnWords == 1 = Right (AvgColumn tableName columnName whereFilter)
+      | "max(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && tableAndColumnExists && length columnWords == 1 = Right (MaxColumn tableName columnName whereFilter)
       | tableNameExists tableName && all (columnNameExists tableName) columnNames = Right (SelectColumns tableName columnNames whereFilter)
       | otherwise = Left "Unsupported or invalid statement"
 
@@ -118,9 +120,7 @@ executeStatement (AvgColumn tableName columnName whereCondition) =
            in if null validIntValues
                 then Left "No valid integers found in the specified column"
                 else
-                  let sumValues = sumIntValues validIntValues
-                      avg = fromIntegral sumValues / fromIntegral (length validIntValues)
-                   in Right $ DataFrame [Column "AVG" IntegerType] [[IntegerValue (round avg)]]
+                 averageOfIntValues validIntValues
         Nothing -> Left $ "Column " ++ columnName ++ " not found in table " ++ tableName
     Nothing -> Left $ "Table " ++ tableName ++ " not found"
 executeStatement (SelectColumns tableName columnNames whereCondition) =
@@ -159,6 +159,15 @@ filterRowsByBoolColumn name col bool
     rowCellAtIndexIsBool boolVal row index = case index of
       Just ind -> row !! ind == BoolValue boolVal
       Nothing -> False
+      
+--AVG agregate function
+averageOfIntValues :: [Value] -> Either ErrorMessage DataFrame
+averageOfIntValues validIntValues 
+  | null validIntValues = Left "No valid integers found in the specified column"
+  | otherwise =
+      let sumValues = sumIntValues validIntValues
+          avg = fromIntegral sumValues / fromIntegral (length validIntValues)
+      in Right $ DataFrame [Column "AVG" IntegerType] [[IntegerValue (round avg)]]
 
 -- max aggregate function
 sqlMax :: DataFrame -> String -> Either ErrorMessage Value
@@ -239,4 +248,3 @@ isNullValue _ = False
 
 columns :: DataFrame -> [Column]
 columns (DataFrame cols _) = cols
-

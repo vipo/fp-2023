@@ -130,7 +130,6 @@ checkIfNotTooLong str' width'
   | length str' < div width' 4 = str'
   | otherwise = take (div width' 4 - 3) str' ++ "..."
 
-
 checkLength :: Int -> Int -> Int
 checkLength lng wdth
   | lng > div wdth 4 = div wdth 4

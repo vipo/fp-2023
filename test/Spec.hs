@@ -2,7 +2,9 @@ import Data.Either
 import Data.Maybe ()
 import InMemoryTables qualified as D
 import Lib1
+import Lib2
 import Test.Hspec
+
 
 main :: IO ()
 main = hspec $ do
@@ -34,3 +36,22 @@ main = hspec $ do
   describe "Lib1.renderDataFrameAsTable" $ do
     it "renders a table" $ do
       Lib1.renderDataFrameAsTable 100 (snd D.tableEmployees) `shouldSatisfy` not . null
+  describe "Lib2.parseStatement" $ do
+    it "doesn't execute wrong statements" $ do
+      Lib2.parseStatement "shuow teibls;" `shouldSatisfy` isLeft
+    it "doesn'execute statements without ';'" $ do
+      Lib2.parseStatement "show tables" `shouldSatisfy` isLeft
+    it "shows the right tables" $ do
+      Lib2.parseStatement "show table employees;" `shouldBe` Right (ShowTable "employees")
+    it "doesn't show wrong tables" $ do
+      Lib2.parseStatement "show table Flags;" `shouldSatisfy` isLeft
+    it "doesn't show wrong tables" $ do
+      Lib2.parseStatement "show table Flagiuks;" `shouldSatisfy` isLeft
+    it "shows the list of tables" $ do
+      Lib2.parseStatement "show tables;" `shouldBe` Right ShowTables
+    it "shows the list of tables" $ do
+      Lib2.parseStatement "SHOW TABLES;" `shouldBe` Right ShowTables
+    it "shows the list of tables" $ do
+      Lib2.parseStatement "SHOW TABLES     ;         " `shouldSatisfy` isLeft
+    it "shows the list of tables" $ do
+      Lib2.parseStatement "SHOW TABLES     ;" `shouldBe` Right ShowTables

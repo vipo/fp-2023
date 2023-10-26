@@ -187,10 +187,36 @@ executeStatement (Select selectQ table) =
           Sum -> do 
             Left "Sum"
           Max -> do
+            _ <- Right (createSelectDataFrame
+                    (fst (getColumnsRows [colN] (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database))))
+                    ( findMax (snd (getColumnsRows [colN] (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)))))
+                    )
             Left "Max"
         False -> Left "Can not show this table as it is invalid in database"
       False -> Left ("Provided column name does not exist in table '" ++ table ++ "'")
-executeStatement _ = Left "Not implemented: executeStatement for other statements"
+executeStatement _ = Left "Not implemented: executeStatement for other statements"  
+
+---------------------------------------------------------------------------------
+
+instance Ord Value where
+    compare val1 val2 
+        | val1 <= val2 || val2 <= val1 = EQ
+        | val1 < val2 = LT
+        | otherwise = GT
+
+findMax :: [Row] -> [Row] -- listas normalus, listas is 1 elemento
+findMax row = rowToRowList (maximum row) 
+
+rowToRowList :: Row -> [Row]
+rowToRowList row = [row]
+
+
+
+
+
+
+
+
 ---------------------------------------------------------------------------------
 -- might need to delete later (check only after everything is done)
 

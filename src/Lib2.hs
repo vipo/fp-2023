@@ -161,9 +161,17 @@ matchesWhereAndPattern _ _ = False
 
 isWhereAndOperation :: [String] -> TableName -> Bool
 isWhereAndOperation [condition1, operator, condition2] tableName
-  | columnNameExists tableName condition1  && elem operator [">", "<", "="] && compareMaybe (getColumnType (getColumnByName condition1 (columns (getDataFrameByName tableName)))) (parseType condition2)  = True
-  | columnNameExists tableName condition2  && elem operator [">", "<", "="] && compareMaybe (getColumnType (getColumnByName condition2 (columns (getDataFrameByName tableName)))) (parseType condition1)  = True
+  | columnNameExists tableName condition1  && elem operator [">", "<", "="] && col1MatchesVal2 = True
+  | columnNameExists tableName condition2  && elem operator [">", "<", "="] && col2MatchesVal1 = True
   | otherwise = False
+  where
+    val1IsColumn = columnNameExists tableName condition1
+    val2IsColumn = columnNameExists tableName condition2
+    df = getDataFrameByName tableName
+    val1Column = getColumnByName condition1 (columns df)
+    val2Column = getColumnByName condition2 (columns df)
+    col1MatchesVal2 = compareMaybe (getColumnType val1Column) (parseType condition2)
+    col2MatchesVal1 = compareMaybe (getColumnType val2Column) (parseType condition1)
 isWhereAndOperation _ _ = False
 
 parseType :: String -> Maybe ColumnType

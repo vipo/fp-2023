@@ -64,7 +64,7 @@ mapStatementType statement = case statement of
   ["show", "tables"] -> Right ShowTables
   "select" : rest -> parseAggregateFunction rest
   _ -> Left "Unsupported or invalid statement"
-
+    
 parseAggregateFunction :: [String] -> Either ErrorMessage ParsedStatement
 parseAggregateFunction statement = parseFunctionBody
   where
@@ -96,7 +96,7 @@ parseAggregateFunction statement = parseFunctionBody
 
     columnString = unwords columnWords
     columnNames = map (dropWhile (== ' ')) $ splitByComma columnString
-
+  
     parseFunctionBody :: Either ErrorMessage ParsedStatement
     parseFunctionBody = case statementClause of
       Left err -> Left err
@@ -222,21 +222,14 @@ executeStatement (AvgColumn tableName columnName whereCondition) =
            in if null validIntValues
                 then Left "No valid integers found in the specified column"
                 else
-                  let sumValues = sumIntValues validIntValues
-                      avg = fromIntegral sumValues / fromIntegral (length validIntValues)
-                   in Right $ DataFrame [Column "AVG" IntegerType] [[IntegerValue (round avg)]]
+                 averageOfIntValues validIntValues
         Nothing -> Left $ "Column " ++ columnName ++ " not found in table " ++ tableName
     Nothing -> Left $ "Table " ++ tableName ++ " not found"
 executeStatement (SelectColumns tableName columnNames whereCondition) =
   case lookup tableName database of
     Just df ->
       case mapM (`findColumnIndex` df) columnNames of
-        Just columnIndices ->
-          let realCols = columns (executeWhere whereCondition tableName)
-              realRows = getDataFrameRows (executeWhere whereCondition tableName)
-              selectedColumns = map (realCols !!) columnIndices
-              selectedRows = map (\row -> map (row !!) columnIndices) realRows
-           in Right $ DataFrame selectedColumns selectedRows
+        Just columnIndices -> selectColumnsFromDataFrame whereCondition tableName columnIndices
         Nothing -> Left $ "One or more columns not found in table " ++ tableName
     Nothing -> Left $ "Table " ++ tableName ++ " not found"
 executeStatement (MaxColumn tableName columnName whereCondition) = case sqlMax (executeWhere whereCondition tableName) columnName of
@@ -263,6 +256,23 @@ filterRowsByBoolColumn name col bool
     rowCellAtIndexIsBool boolVal row index = case index of
       Just ind -> row !! ind == BoolValue boolVal
       Nothing -> False
+--selectColumns
+selectColumnsFromDataFrame :: Maybe WhereClause -> TableName -> [Int] -> Either ErrorMessage DataFrame
+selectColumnsFromDataFrame whereCondition tableName columnIndices = do
+    let realCols = columns (executeWhere whereCondition tableName)
+        realRows = getDataFrameRows (executeWhere whereCondition tableName)
+        selectedColumns = map (realCols !!) columnIndices
+        selectedRows = map (\row -> map (row !!) columnIndices) realRows
+    Right $ DataFrame selectedColumns selectedRows
+
+--AVG agregate function
+averageOfIntValues :: [Value] -> Either ErrorMessage DataFrame
+averageOfIntValues validIntValues 
+  | null validIntValues = Left "No valid integers found in the specified column"
+  | otherwise =
+      let sumValues = sumIntValues validIntValues
+          avg = fromIntegral sumValues / fromIntegral (length validIntValues)
+      in Right $ DataFrame [Column "AVG" IntegerType] [[IntegerValue (round avg)]]
 
 -- max aggregate function
 sqlMax :: DataFrame -> String -> Either ErrorMessage Value

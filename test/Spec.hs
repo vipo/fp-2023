@@ -145,10 +145,10 @@ main = hspec $ do
       parseStatement "select flag from flags where 2 < flag;" `shouldBe` Left "Unsupported or invalid statement"
 
     it "shouldn't parse statements with incomplete where and" $ do
-      parseStatement "select id, name from employees where name < 'vi' and;" `shouldBe` "Unsupported or invalid statement"   
-      parseStatement "select id, name from employees where name <;" `shouldBe` "Unsupported or invalid statement"   
-      parseStatement "select id, name from employees where name;" `shouldBe` "Unsupported or invalid statement"  
-      parseStatement "select id, name from employees wher;" `shouldBe` "Unsupported or invalid statement"  
+      parseStatement "select id, name from employees where name < 'vi' and;" `shouldBe` Left "Unsupported or invalid statement"   
+      parseStatement "select id, name from employees where name <;" `shouldBe` Left "Unsupported or invalid statement"   
+      parseStatement "select id, name from employees where name;" `shouldBe` Left "Unsupported or invalid statement"  
+      parseStatement "select id, name from employees wher;" `shouldBe` Left "Unsupported or invalid statement"  
 
 
   describe "executeStatement for SHOW TABLES in Lib2" $ do

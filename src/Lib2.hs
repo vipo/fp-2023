@@ -40,11 +40,14 @@ data Condition
   = Equals String ConditionValue
   | GreaterThan String ConditionValue
   | LessThan String ConditionValue
+  | LessthanOrEqual String ConditionValue
+  | GreaterThanOrEqual String ConditionValue
+  | NotEqual String ConditionValue
   deriving (Show, Eq)
 
 data ConditionValue
   = StrValue String
-  | IntValue Int
+  | IntValue Integer
   deriving (Show, Eq)
 
 parseStatement :: String -> Either ErrorMessage ParsedStatement
@@ -133,7 +136,7 @@ parseWhereAnd fromAndWhere
 
 getConditionValue :: String -> ConditionValue
 getConditionValue condition
-  | isNumber condition = IntValue (read condition :: Int)
+  | isNumber condition = IntValue (read condition :: Integer)
   | length condition > 2 && "'" `isPrefixOf` condition && "'" `isSuffixOf` condition = StrValue (drop 1 (init condition))
 
 getCondition :: String -> String -> String -> String -> Condition
@@ -144,6 +147,12 @@ getCondition val1 op val2 tableName
   | val2IsColumn && op == "<" && col2MatchesVal1 = LessThan val2 $ getConditionValue val1
   | val1IsColumn && op == ">" && col1MatchesVal2 = GreaterThan val1 $ getConditionValue val2
   | val2IsColumn && op == ">" && col2MatchesVal1 = GreaterThan val2 $ getConditionValue val1
+  | val1IsColumn && op == ">=" && col1MatchesVal2 = GreaterThanOrEqual val1 $ getConditionValue val2
+  | val2IsColumn && op == ">=" && col2MatchesVal1 = GreaterThanOrEqual val2 $ getConditionValue val1
+  | val1IsColumn && op == "<=" && col1MatchesVal2 = LessthanOrEqual val1 $ getConditionValue val2
+  | val2IsColumn && op == "<=" && col2MatchesVal1 = LessthanOrEqual val2 $ getConditionValue val1
+  | val1IsColumn && op == "<>" && col1MatchesVal2 = NotEqual val1 $ getConditionValue val2
+  | val2IsColumn && op == "<>" && col2MatchesVal1 = NotEqual val2 $ getConditionValue val1
 
   where
     val1IsColumn = columnNameExists tableName val1
@@ -161,8 +170,8 @@ matchesWhereAndPattern _ _ = False
 
 isWhereAndOperation :: [String] -> TableName -> Bool
 isWhereAndOperation [condition1, operator, condition2] tableName
-  | columnNameExists tableName condition1  && elem operator [">", "<", "="] && col1MatchesVal2 = True
-  | columnNameExists tableName condition2  && elem operator [">", "<", "="] && col2MatchesVal1 = True
+  | columnNameExists tableName condition1 && elem operator [">", "<", "=", "<>", "<=", ">="] && col1MatchesVal2 = True
+  | columnNameExists tableName condition2 && elem operator [">", "<", "=", "<>", "<=", ">="] && col2MatchesVal1 = True
   | otherwise = False
   where
     val1IsColumn = columnNameExists tableName condition1
@@ -227,6 +236,11 @@ executeWhere whereClause tableName = case whereClause of
   Just (IsValueBool bool table column) -> case filterRowsByBoolColumn table column bool of
     Right df -> df
     Left _ -> getDataFrameByName tableName
+  
+  Just (Conditions conditions) -> case filterRowsByConditions tableName conditions of
+    Right df -> df
+    Left _ -> getDataFrameByName tableName
+  
   Nothing -> getDataFrameByName tableName
 
 -- Filter rows based on whether the specified column's value is TRUE or FALSE.
@@ -255,6 +269,67 @@ filterRowsByBoolColumn name col bool
 
     columnIndex :: Maybe Int
     columnIndex = elemIndex col columnNames
+
+filterRowsByConditions :: TableName -> [Condition] -> Either ErrorMessage DataFrame
+filterRowsByConditions name conditions
+  | not $ isTableInDatabase name = Left "Table does not exist."
+  | otherwise = Right $ DataFrame currentColumns $ filter (matchesConditions conditions) currentRows
+  where
+    currentDataFrame = getDataFrameByName name
+    currentColumns   = columns currentDataFrame
+    currentRows      = getDataFrameRows currentDataFrame
+
+    matchesConditions :: [Condition] -> Row -> Bool
+    matchesConditions [] _ = True
+    matchesConditions (c:cs) row = evaluateCondition c row && matchesConditions cs row
+
+    evaluateCondition :: Condition -> Row -> Bool
+    evaluateCondition (Equals colName (StrValue val)) row = 
+        getValueByColumnName colName row (getColNameList currentColumns) == StringValue val
+
+    evaluateCondition (Equals colName (IntValue val)) row = 
+        case getValueByColumnName colName row (getColNameList currentColumns) of
+            IntegerValue intVal -> intVal == val
+            _ -> False
+
+    evaluateCondition (GreaterThan colName (IntValue val)) row = 
+        case getValueByColumnName colName row (getColNameList currentColumns) of
+            IntegerValue intVal -> intVal > val
+            _ -> False
+
+    evaluateCondition (LessThan colName (IntValue val)) row = 
+        case getValueByColumnName colName row (getColNameList currentColumns) of
+            IntegerValue intVal -> intVal < val
+            _ -> False
+
+    evaluateCondition (GreaterThanOrEqual colName (IntValue val)) row =
+        case getValueByColumnName colName row (getColNameList currentColumns) of
+            IntegerValue intVal -> intVal >= val
+            _ -> False
+
+    evaluateCondition (LessthanOrEqual colName (IntValue val)) row =
+        case getValueByColumnName colName row (getColNameList currentColumns) of
+            IntegerValue intVal -> intVal <= val
+            _ -> False
+
+    evaluateCondition (NotEqual colName (StrValue val)) row = 
+        getValueByColumnName colName row (getColNameList currentColumns) /= StringValue val
+
+    evaluateCondition (NotEqual colName (IntValue val)) row = 
+        case getValueByColumnName colName row (getColNameList currentColumns) of
+            IntegerValue intVal -> intVal /= val
+            _ -> False
+
+
+    getValueByColumnName :: String -> Row -> [String] -> Value
+    getValueByColumnName colName row columnNames =
+      case columnIndex colName columnNames of
+        Just ind -> row !! ind
+        Nothing  -> NullValue
+
+    columnIndex :: String -> [String] -> Maybe Int
+    columnIndex colName columnNames = elemIndex colName columnNames
+
 --selectColumns
 selectColumnsFromDataFrame :: Maybe WhereClause -> TableName -> [Int] -> Either ErrorMessage DataFrame
 selectColumnsFromDataFrame whereCondition tableName columnIndices = do

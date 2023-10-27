@@ -292,9 +292,19 @@ filterRowsByConditions name conditions
             IntegerValue intVal -> intVal == val
             _ -> False
 
+    evaluateCondition (GreaterThan colName (StrValue val)) row =
+        case getValueByColumnName colName row (getColNameList currentColumns) of
+            StringValue strVal -> strVal > val
+            _ -> False
+
     evaluateCondition (GreaterThan colName (IntValue val)) row = 
         case getValueByColumnName colName row (getColNameList currentColumns) of
             IntegerValue intVal -> intVal > val
+            _ -> False
+
+    evaluateCondition (LessThan colName (StrValue val)) row =
+        case getValueByColumnName colName row (getColNameList currentColumns) of
+            StringValue strVal -> strVal < val
             _ -> False
 
     evaluateCondition (LessThan colName (IntValue val)) row = 
@@ -302,9 +312,19 @@ filterRowsByConditions name conditions
             IntegerValue intVal -> intVal < val
             _ -> False
 
+    evaluateCondition (GreaterThanOrEqual colName (StrValue val)) row =
+        case getValueByColumnName colName row (getColNameList currentColumns) of
+            StringValue strVal -> strVal >= val
+            _ -> False
+
     evaluateCondition (GreaterThanOrEqual colName (IntValue val)) row =
         case getValueByColumnName colName row (getColNameList currentColumns) of
             IntegerValue intVal -> intVal >= val
+            _ -> False
+    
+    evaluateCondition (LessthanOrEqual colName (StrValue val)) row =
+        case getValueByColumnName colName row (getColNameList currentColumns) of
+            StringValue strVal -> strVal <= val
             _ -> False
 
     evaluateCondition (LessthanOrEqual colName (IntValue val)) row =
@@ -320,15 +340,11 @@ filterRowsByConditions name conditions
             IntegerValue intVal -> intVal /= val
             _ -> False
 
-
     getValueByColumnName :: String -> Row -> [String] -> Value
     getValueByColumnName colName row columnNames =
-      case columnIndex colName columnNames of
+      case elemIndex colName columnNames of
         Just ind -> row !! ind
         Nothing  -> NullValue
-
-    columnIndex :: String -> [String] -> Maybe Int
-    columnIndex colName columnNames = elemIndex colName columnNames
 
 --selectColumns
 selectColumnsFromDataFrame :: Maybe WhereClause -> TableName -> [Int] -> Either ErrorMessage DataFrame

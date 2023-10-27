@@ -137,7 +137,7 @@ main = hspec $ do
     it "should parse correct select statements with where and" $ do
       parseStatement "select max(flag) from flags where flag < 'b';" `shouldBe` Right (MaxColumn "flags" "flag" (Just (Conditions [LessThan "flag" (StrValue "b")])))
       parseStatement "select flag, value from flags where flag < 'c';" `shouldBe` Right (SelectColumns "flags" ["flag","value"] (Just (Conditions [LessThan "flag" (StrValue "c")])))
-      parseStatement "select flag, value from flags where flag < 'c' and flag > 'c' and flag < 'd';" `shouldBe` Right (SelectColumns "flags" ["flag","value"] (Just (Conditions [LessThan "flag" (StrValue "c"),GreaterThan "flag" (StrValue "a"),LessThan "flag" (StrValue "d")])))
+      parseStatement "select flag, value from flags where flag < 'c' and flag > 'c' and flag < 'd';" `shouldBe` Right (SelectColumns "flags" ["flag","value"] (Just (Conditions [LessThan "flag" (StrValue "c"),GreaterThan "flag" (StrValue "c"),LessThan "flag" (StrValue "d")])))
       parseStatement "selEct flag, value FRom flags wheRe flag < 'c' and flag > 'C' and flag = 'd';" `shouldBe` Right (SelectColumns "flags" ["flag","value"] (Just (Conditions [LessThan "flag" (StrValue "c"),GreaterThan "flag" (StrValue "C"),Equals "flag" (StrValue "d")])))
 
     it "shouldn't parse where and statements with mismatched and conditions e.g. int < string" $ do

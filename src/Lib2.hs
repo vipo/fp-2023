@@ -89,6 +89,7 @@ parseAggregateFunction statement = parseFunctionBody
       | otherwise = Left "Unsupported or invalid statement"
 
     columnName = drop 4 $ init (head columnWords)
+    
     tableName
       | length fromAndWhere >= 2 && head fromAndWhere == "from" = fromAndWhere !! 1
       | otherwise = ""
@@ -100,8 +101,8 @@ parseAggregateFunction statement = parseFunctionBody
     parseFunctionBody = case statementClause of
       Left err -> Left err
       Right clause
-        | "avg(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && length columnWords == 1 -> Right (AvgColumn tableName columnName clause)
-        | "max(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && length columnWords == 1 -> Right (MaxColumn tableName columnName clause)
+        | "avg(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && length columnWords == 1 && columnNameExists tableName columnName -> Right (AvgColumn tableName columnName clause)
+        | "max(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && length columnWords == 1 && columnNameExists tableName columnName -> Right (MaxColumn tableName columnName clause)
         | all (columnNameExists tableName) columnNames -> Right (SelectColumns tableName columnNames clause)
         | otherwise -> Left "Unsupported or invalid statement"
 
@@ -147,7 +148,6 @@ getCondition val1 op val2 tableName
   | val2IsColumn && op == "<" && col2MatchesVal1 = LessThan val2 $ getConditionValue val1
   | val1IsColumn && op == ">" && col1MatchesVal2 = GreaterThan val1 $ getConditionValue val2
   | val2IsColumn && op == ">" && col2MatchesVal1 = GreaterThan val2 $ getConditionValue val1
-  | otherwise = Equals "play stupid games" $ StrValue "Win stupid shit"
 
   where
     val1IsColumn = columnNameExists tableName val1

@@ -224,16 +224,29 @@ executeWhere whereClause tableName = case whereClause of
 -- Filter rows based on whether the specified column's value is TRUE or FALSE.
 filterRowsByBoolColumn :: TableName -> String -> Bool -> Either ErrorMessage DataFrame
 filterRowsByBoolColumn name col bool
-  | isTableInDatabase name && col `elem` getColNameList (columns (getDataFrameByName name)) && getColumnType (getColumnByName col (columns (getDataFrameByName name))) == BoolType = Right $ getRowsByBool bool (getDataFrameRows (getDataFrameByName name))
-  | otherwise = Left "Dataframe does not exist or does not contain column by specified name or column is not of type bool"
+  | not $ isTableInDatabase name                      = Left combinedError
+  | not $ col `elem` columnNames                      = Left combinedError
+  | getColumnType currentColumn /= BoolType           = Left combinedError
+  | otherwise                                         = Right $ getRowsByBool bool currentRows
   where
-    getRowsByBool :: Bool -> [Row] -> DataFrame
-    getRowsByBool boolValue tableRows = DataFrame (columns (getDataFrameByName name)) (filter (\row -> rowCellAtIndexIsBool boolValue row $ elemIndex col (getColNameList (columns (getDataFrameByName name)))) tableRows)
+    currentDataFrame = getDataFrameByName name
+    currentColumns   = columns currentDataFrame
+    columnNames      = getColNameList currentColumns
+    currentRows      = getDataFrameRows currentDataFrame
+    currentColumn    = getColumnByName col currentColumns
 
-    rowCellAtIndexIsBool :: Bool -> Row -> Maybe Int -> Bool
-    rowCellAtIndexIsBool boolVal row index = case index of
+    combinedError = "Dataframe does not exist or does not contain column by specified name or column is not of type bool"
+
+    getRowsByBool :: Bool -> [Row] -> DataFrame
+    getRowsByBool boolValue rows = DataFrame currentColumns $ filter (matchesBool boolValue) rows
+
+    matchesBool :: Bool -> Row -> Bool
+    matchesBool boolVal row = case columnIndex of
       Just ind -> row !! ind == BoolValue boolVal
-      Nothing -> False
+      Nothing  -> False
+
+    columnIndex :: Maybe Int
+    columnIndex = elemIndex col columnNames
 --selectColumns
 selectColumnsFromDataFrame :: Maybe WhereClause -> TableName -> [Int] -> Either ErrorMessage DataFrame
 selectColumnsFromDataFrame whereCondition tableName columnIndices = do

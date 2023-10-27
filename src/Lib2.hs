@@ -323,12 +323,9 @@ filterRowsByConditions name conditions
 
     getValueByColumnName :: String -> Row -> [String] -> Value
     getValueByColumnName colName row columnNames =
-      case columnIndex colName columnNames of
+      case elemIndex colName columnNames of
         Just ind -> row !! ind
         Nothing  -> NullValue
-
-    columnIndex :: String -> [String] -> Maybe Int
-    columnIndex = elemIndex
 
 --selectColumns
 selectColumnsFromDataFrame :: Maybe WhereClause -> TableName -> [Int] -> Either ErrorMessage DataFrame

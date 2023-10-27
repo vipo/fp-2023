@@ -62,11 +62,11 @@ mapStatementType statement = case statement of
       then Right (ShowTable tableName)
       else Left "Table not found"
   ["show", "tables"] -> Right ShowTables
-  "select" : rest -> parseAggregateFunction rest
+  "select" : rest -> parseSelect rest
   _ -> Left "Unsupported or invalid statement"
     
-parseAggregateFunction :: [String] -> Either ErrorMessage ParsedStatement
-parseAggregateFunction statement = parseFunctionBody
+parseSelect :: [String] -> Either ErrorMessage ParsedStatement
+parseSelect statement = parseFunctionBody
   where
     (_, afterWhere) = break (== "where") statement
     (_, afterIs) = break (== "is") afterWhere

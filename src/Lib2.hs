@@ -40,6 +40,9 @@ data Condition
   = Equals String ConditionValue
   | GreaterThan String ConditionValue
   | LessThan String ConditionValue
+  | LessthanOrEqual String ConditionValue
+  | GreaterThanOrEqual String ConditionValue
+  | NotEqual String ConditionValue
   deriving (Show, Eq)
 
 data ConditionValue
@@ -144,6 +147,12 @@ getCondition val1 op val2 tableName
   | val2IsColumn && op == "<" && col2MatchesVal1 = LessThan val2 $ getConditionValue val1
   | val1IsColumn && op == ">" && col1MatchesVal2 = GreaterThan val1 $ getConditionValue val2
   | val2IsColumn && op == ">" && col2MatchesVal1 = GreaterThan val2 $ getConditionValue val1
+  | val1IsColumn && op == ">=" && col1MatchesVal2 = GreaterThanOrEqual val1 $ getConditionValue val2
+  | val2IsColumn && op == ">=" && col2MatchesVal1 = GreaterThanOrEqual val2 $ getConditionValue val1
+  | val1IsColumn && op == "<=" && col1MatchesVal2 = LessthanOrEqual val1 $ getConditionValue val2
+  | val2IsColumn && op == "<=" && col2MatchesVal1 = LessthanOrEqual val2 $ getConditionValue val1
+  | val1IsColumn && op == "<>" && col1MatchesVal2 = NotEqual val1 $ getConditionValue val2
+  | val2IsColumn && op == "<>" && col2MatchesVal1 = NotEqual val2 $ getConditionValue val1
 
   where
     val1IsColumn = columnNameExists tableName val1
@@ -161,8 +170,8 @@ matchesWhereAndPattern _ _ = False
 
 isWhereAndOperation :: [String] -> TableName -> Bool
 isWhereAndOperation [condition1, operator, condition2] tableName
-  | columnNameExists tableName condition1  && elem operator [">", "<", "="] && col1MatchesVal2 = True
-  | columnNameExists tableName condition2  && elem operator [">", "<", "="] && col2MatchesVal1 = True
+  | columnNameExists tableName condition1 && elem operator [">", "<", "=", "<>", "<=", ">="] && col1MatchesVal2 = True
+  | columnNameExists tableName condition2 && elem operator [">", "<", "=", "<>", "<=", ">="] && col2MatchesVal1 = True
   | otherwise = False
   where
     val1IsColumn = columnNameExists tableName condition1

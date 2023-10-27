@@ -62,11 +62,11 @@ mapStatementType statement = case statement of
       then Right (ShowTable tableName)
       else Left "Table not found"
   ["show", "tables"] -> Right ShowTables
-  "select" : rest -> parseAggregateFunction rest
+  "select" : rest -> parseSelect rest
   _ -> Left "Unsupported or invalid statement"
     
-parseAggregateFunction :: [String] -> Either ErrorMessage ParsedStatement
-parseAggregateFunction statement = parseFunctionBody
+parseSelect :: [String] -> Either ErrorMessage ParsedStatement
+parseSelect statement = parseFunctionBody
   where
     (_, afterWhere) = break (== "where") statement
     (_, afterIs) = break (== "is") afterWhere
@@ -123,23 +123,19 @@ parseWhereAnd fromAndWhere
   | matchesWhereAndPattern (drop 3 fromAndWhere) (fromAndWhere !! 1) = splitStatementToAndClause (drop 3 fromAndWhere) (fromAndWhere !! 1)
   | otherwise = Left "Unsupported or invalid statement"
   where
--- Unsafe
     splitStatementToAndClause :: [String] -> TableName -> Either ErrorMessage WhereClause
     splitStatementToAndClause strList tableName = Right (Conditions (getConditionList strList tableName))
     splitStatementToAndClause _ _ = Left "Unsupported or invalid statement"
 
--- Unsafe
     getConditionList :: [String] -> TableName -> [Condition]
     getConditionList [condition1, operator, condition2] tableName = [getCondition condition1 operator condition2 tableName]
     getConditionList (condition1 : operator : condition2 : _ : xs) tableName = getCondition condition1 operator condition2 tableName : getConditionList xs tableName
 
--- Unsafe
 getConditionValue :: String -> ConditionValue
 getConditionValue condition
   | isNumber condition = IntValue (read condition :: Int)
   | length condition > 2 && "'" `isPrefixOf` condition && "'" `isSuffixOf` condition = StrValue (drop 1 (init condition))
 
--- Unsafe
 getCondition :: String -> String -> String -> String -> Condition
 getCondition val1 op val2 tableName
   | val1IsColumn && op == "=" && col1MatchesVal2 = Equals val1 $ getConditionValue val2
@@ -165,9 +161,17 @@ matchesWhereAndPattern _ _ = False
 
 isWhereAndOperation :: [String] -> TableName -> Bool
 isWhereAndOperation [condition1, operator, condition2] tableName
-  | columnNameExists tableName condition1  && elem operator [">", "<", "="] && compareMaybe (getColumnType (getColumnByName condition1 (columns (getDataFrameByName tableName)))) (parseType condition2)  = True
-  | columnNameExists tableName condition2  && elem operator [">", "<", "="] && compareMaybe (getColumnType (getColumnByName condition2 (columns (getDataFrameByName tableName)))) (parseType condition1)  = True
+  | columnNameExists tableName condition1  && elem operator [">", "<", "="] && col1MatchesVal2 = True
+  | columnNameExists tableName condition2  && elem operator [">", "<", "="] && col2MatchesVal1 = True
   | otherwise = False
+  where
+    val1IsColumn = columnNameExists tableName condition1
+    val2IsColumn = columnNameExists tableName condition2
+    df = getDataFrameByName tableName
+    val1Column = getColumnByName condition1 (columns df)
+    val2Column = getColumnByName condition2 (columns df)
+    col1MatchesVal2 = compareMaybe (getColumnType val1Column) (parseType condition2)
+    col2MatchesVal1 = compareMaybe (getColumnType val2Column) (parseType condition1)
 isWhereAndOperation _ _ = False
 
 parseType :: String -> Maybe ColumnType
@@ -212,26 +216,8 @@ executeStatement (ShowTable tableName) =
     Nothing -> Left $ "Table " ++ tableName ++ " not found"
 executeStatement ShowTables =
   Right $ DataFrame [Column "Tables" StringType] (map (\(name, _) -> [StringValue name]) database)
-executeStatement (AvgColumn tableName columnName whereCondition) =
-  case lookup tableName database of
-    Just df@(DataFrame _ _) ->
-      case findColumnIndex columnName df of
-        Just columnIndex ->
-          let values = map (\row -> getColumnValue columnIndex row) (getDataFrameRows (executeWhere whereCondition tableName))
-              validIntValues = filter isIntegerValue values
-           in if null validIntValues
-                then Left "No valid integers found in the specified column"
-                else
-                 averageOfIntValues validIntValues
-        Nothing -> Left $ "Column " ++ columnName ++ " not found in table " ++ tableName
-    Nothing -> Left $ "Table " ++ tableName ++ " not found"
-executeStatement (SelectColumns tableName columnNames whereCondition) =
-  case lookup tableName database of
-    Just df ->
-      case mapM (`findColumnIndex` df) columnNames of
-        Just columnIndices -> selectColumnsFromDataFrame whereCondition tableName columnIndices
-        Nothing -> Left $ "One or more columns not found in table " ++ tableName
-    Nothing -> Left $ "Table " ++ tableName ++ " not found"
+executeStatement (AvgColumn tableName columnName whereCondition) = calculateAverageFromTableColumn tableName columnName whereCondition
+executeStatement (SelectColumns tableName columnNames whereCondition) = selectSpecifiedColumnsFromTable tableName columnNames whereCondition
 executeStatement (MaxColumn tableName columnName whereCondition) = case sqlMax (executeWhere whereCondition tableName) columnName of
   Right value -> Right (DataFrame [getColumnByName columnName (columns (getDataFrameByName tableName))] [[value]])
   Left msg -> Left msg
@@ -246,16 +232,29 @@ executeWhere whereClause tableName = case whereClause of
 -- Filter rows based on whether the specified column's value is TRUE or FALSE.
 filterRowsByBoolColumn :: TableName -> String -> Bool -> Either ErrorMessage DataFrame
 filterRowsByBoolColumn name col bool
-  | isTableInDatabase name && col `elem` getColNameList (columns (getDataFrameByName name)) && getColumnType (getColumnByName col (columns (getDataFrameByName name))) == BoolType = Right $ getRowsByBool bool (getDataFrameRows (getDataFrameByName name))
-  | otherwise = Left "Dataframe does not exist or does not contain column by specified name or column is not of type bool"
+  | not $ isTableInDatabase name                      = Left combinedError
+  | not $ col `elem` columnNames                      = Left combinedError
+  | getColumnType currentColumn /= BoolType           = Left combinedError
+  | otherwise                                         = Right $ getRowsByBool bool currentRows
   where
-    getRowsByBool :: Bool -> [Row] -> DataFrame
-    getRowsByBool boolValue tableRows = DataFrame (columns (getDataFrameByName name)) (filter (\row -> rowCellAtIndexIsBool boolValue row $ elemIndex col (getColNameList (columns (getDataFrameByName name)))) tableRows)
+    currentDataFrame = getDataFrameByName name
+    currentColumns   = columns currentDataFrame
+    columnNames      = getColNameList currentColumns
+    currentRows      = getDataFrameRows currentDataFrame
+    currentColumn    = getColumnByName col currentColumns
 
-    rowCellAtIndexIsBool :: Bool -> Row -> Maybe Int -> Bool
-    rowCellAtIndexIsBool boolVal row index = case index of
+    combinedError = "Dataframe does not exist or does not contain column by specified name or column is not of type bool"
+
+    getRowsByBool :: Bool -> [Row] -> DataFrame
+    getRowsByBool boolValue rows = DataFrame currentColumns $ filter (matchesBool boolValue) rows
+
+    matchesBool :: Bool -> Row -> Bool
+    matchesBool boolVal row = case columnIndex of
       Just ind -> row !! ind == BoolValue boolVal
-      Nothing -> False
+      Nothing  -> False
+
+    columnIndex :: Maybe Int
+    columnIndex = elemIndex col columnNames
 --selectColumns
 selectColumnsFromDataFrame :: Maybe WhereClause -> TableName -> [Int] -> Either ErrorMessage DataFrame
 selectColumnsFromDataFrame whereCondition tableName columnIndices = do
@@ -265,6 +264,15 @@ selectColumnsFromDataFrame whereCondition tableName columnIndices = do
         selectedRows = map (\row -> map (row !!) columnIndices) realRows
     Right $ DataFrame selectedColumns selectedRows
 
+selectSpecifiedColumnsFromTable :: TableName -> [String] -> Maybe WhereClause -> Either ErrorMessage DataFrame
+selectSpecifiedColumnsFromTable tableName columnNames whereCondition = 
+    case lookup tableName database of
+        Just df ->
+            case mapM (`findColumnIndex` df) columnNames of
+                Just columnIndices -> selectColumnsFromDataFrame whereCondition tableName columnIndices
+                Nothing -> Left $ "One or more columns not found in table " ++ tableName
+        Nothing -> Left $ "Table " ++ tableName ++ " not found"
+
 --AVG agregate function
 averageOfIntValues :: [Value] -> Either ErrorMessage DataFrame
 averageOfIntValues validIntValues 
@@ -273,6 +281,21 @@ averageOfIntValues validIntValues
       let sumValues = sumIntValues validIntValues
           avg = fromIntegral sumValues / fromIntegral (length validIntValues)
       in Right $ DataFrame [Column "AVG" IntegerType] [[IntegerValue (round avg)]]
+
+calculateAverageFromTableColumn :: TableName -> String -> Maybe WhereClause -> Either ErrorMessage DataFrame
+calculateAverageFromTableColumn tableName columnName whereCondition = 
+    case lookup tableName database of
+        Just df@(DataFrame _ _) ->
+            case findColumnIndex columnName df of
+                Just columnIndex ->
+                    let values = map (\row -> getColumnValue columnIndex row) (getDataFrameRows (executeWhere whereCondition tableName))
+                        validIntValues = filter isIntegerValue values
+                    in if null validIntValues
+                        then Left "No valid integers found in the specified column"
+                        else averageOfIntValues validIntValues
+                Nothing -> Left $ "Column " ++ columnName ++ " not found in table " ++ tableName
+        Nothing -> Left $ "Table " ++ tableName ++ " not found"
+
 
 -- max aggregate function
 sqlMax :: DataFrame -> String -> Either ErrorMessage Value

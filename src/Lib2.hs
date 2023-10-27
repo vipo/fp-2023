@@ -29,7 +29,7 @@ module Lib2
     findTuples,
     firstFromTuple,
     selectStatementParser,
-    columnNamesParser,
+    --columnNamesParser,
     areColumnsListedRight,
     splitStatementAtFrom,
     split,
@@ -52,11 +52,12 @@ import DataFrame
 import InMemoryTables (TableName, database)
 import Data.List.NonEmpty (some1, xor)
 import Foreign.C (charIsRepresentable)
-import Data.Char (toLower, GeneralCategory (ParagraphSeparator), isSpace)
+import Data.Char (toLower, GeneralCategory (ParagraphSeparator), isSpace, isAlphaNum)
 import qualified InMemoryTables as DataFrame
 import Lib1 (renderDataFrameAsTable, findTableByName)
-import Data.List (isPrefixOf)
+import Data.List (isPrefixOf, nub)
 import Data.Maybe (fromMaybe)
+import Data.Either
 import Text.ParserCombinators.ReadP (get)
 import Data.Foldable (find)
 import Data.Monoid (All)
@@ -67,8 +68,7 @@ type Database = [(TableName, DataFrame)]
 
 type ColumnName = String
 
--- data Aggregate = Aggregate AggregateFunction ColumnName
---   deriving (Show, Eq)
+type Aggregate = (AggregateFunction, ColumnName)
 
 data AggregateFunction = Sum | Max
   deriving (Show, Eq)
@@ -81,7 +81,7 @@ type AggregateList = [(AggregateFunction, ColumnName)]
 -- Keep the type, modify constructors
 data ParsedStatement =
   Select {
-    selectQuery :: SpecialSelect, --column :: [ColumnName]
+    selectQuery :: SpecialSelect, 
     table :: TableName
   }
   | ShowTable {
@@ -173,8 +173,8 @@ parseStatement query = case runParser p query of
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
 executeStatement ShowTables = Right $ createTablesDataFrame findTableNames
 executeStatement (ShowTable table) = Right (createColumnsDataFrame (columnsToList (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database))) table)
-executeStatement (Select selectQ table) =
-  case selectQ of 
+executeStatement (Select selectQuery table) =
+  case selectQuery of 
   SelectColumns cols -> do 
     case doColumnsExist cols (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) of 
       True -> Right (createSelectDataFrame
@@ -182,29 +182,49 @@ executeStatement (Select selectQ table) =
                     (snd (getColumnsRows cols (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database))))
                     )
       False -> Left "Provided column name does not exist in database"
-  SelectAggregate ((func, colName) : xs) -> do
+  SelectAggregate aggList -> do
+    case processSelect table aggList of
+      Left err -> Left err
+      Right (newCols, newRows) -> Right $ createSelectDataFrame newCols newRows
 
   -- SelectAggregate (Aggregate aggF colN) -> do
 executeStatement _ = Left "Not implemented: executeStatement for other statements"  
 
 ---------------------------------------------------------------------------------
+--where tures buti cia
+processSelect :: TableName -> AggregateList -> Either ErrorMessage ([Column],[Row])
+processSelect table aggList =
+  case (doColumnsExist (getColumnNames aggList) (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database))) of 
+    False -> Left "Some of the provided columns do not exist" 
+    True -> case validateDataFrame (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) of
+      False -> Left "Selected table is not valid"
+      True -> case (processSelectAggregates (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) aggList) of
+        Left err -> Left err
+        Right [(clm, vl)] -> Right (fst $ switchListToTuple [(clm, vl)], [snd $ switchListToTuple [(clm, vl)]])
 
-processSelectAggregate :: AggregateFunction -> ColumnName -> [Row]
-processSelectAggregate func colName 
 
-    -- case doColumnsExist [dropWhiteSpaces colName] (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) of
-    --   True -> case validateDataFrame (fromMaybe (DataFrame [] []) (findTableByName InMemoryTables.database table)) of  -- removinu maybe dedama i list ir td tvarkau, jei turit lengvesni buda - plz use
-    --     True -> case func of
-    --       Sum -> do 
-    --         Left "Sum"
-    --       Max -> do
-    --         _ <- Right (createSelectDataFrame
-    --                 (fst (getColumnsRows [colName] (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database))))
-    --                 ( findMax (snd (getColumnsRows [colName] (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)))))
-    --                 )
-    --         Left "Max"
-    --     False -> Left "Can not show this table as it is invalid in database"
-    --   False -> Left ("Provided column name does not exist in table '" ++ table ++ "'")
+processSelectAggregates :: DataFrame -> [(AggregateFunction, ColumnName)] -> Either ErrorMessage [(Column, Value)] -- -> ([Column], [Value])
+processSelectAggregates _ [] = Right []
+processSelectAggregates (DataFrame cols rows) ((func, colName):xs) =
+  case func of
+     Max ->  --Right ([((Column ("Max from " ++ colName) (head (getColumnType [colName] cols))), 
+    --               (findMax (snd (getColumnsRows [colName] (DataFrame cols rows)))))] 
+    --               ++ (fromRight [] ( processSelectAggregates (DataFrame cols rows) xs)))
+      Left "blabla"
+
+
+    --( [(Column ("Max from " ++ colName) (getColumnType [colName] cols))] ++ fst $ processSelectAggregates (DataFrame cols rows) xs,
+    --                [(findMax (snd (getColumnsRows [colName] (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)))))] ++ snd $ processSelectAggregates (DataFrame cols rows) xs)
+    --Sum -> reiks err message
+
+getColumnNames :: [(AggregateFunction, ColumnName)] -> [ColumnName]
+getColumnNames aggregates = nub [col | (_, col) <- aggregates]
+
+switchListToTuple :: [(Column, Value)] -> ([Column], [Value])
+switchListToTuple [] = ([], []) -- Base case for an empty list
+switchListToTuple ((col, val):rest) =
+    let (cols, vals) = switchListToTuple rest
+    in (col : cols, val : vals)
 
 instance Ord Value where
     compare val1 val2 
@@ -212,18 +232,11 @@ instance Ord Value where
         | val1 < val2 = LT
         | otherwise = GT
 
-findMax :: [Row] -> [Row] -- listas normalus, listas is 1 elemento
-findMax row = rowToRowList (maximum row) 
+findMax :: [Row] -> Value -- listas normalus, listas is 1 elemento
+findMax row = head (maximum row)
 
-rowToRowList :: Row -> [Row]
-rowToRowList row = [row]
-
-
-
-
-
-
-
+-- rowToRowList :: Row -> [Row]
+-- rowToRowList row = [row]
 
 ---------------------------------------------------------------------------------
 -- might need to delete later (check only after everything is done)
@@ -335,7 +348,7 @@ firstFromTuple = fst
 selectStatementParser :: Parser ParsedStatement
 selectStatementParser = do
     _ <- queryStatementParser "select"
-    _ <- whitespaceParser
+    _ <- optional whitespaceParser
     specialSelect <- selectDataParser
     _ <- whitespaceParser
     _ <- queryStatementParser "from"
@@ -346,64 +359,69 @@ selectDataParser :: Parser SpecialSelect
 selectDataParser = tryParseAggregate <|> tryParseColumn
   where
     tryParseAggregate = do
-        SelectAggregate <$> aggregateListParser
+      aggregateList <- aggregateParser `sepBy` (char ',' *> optional whitespaceParser)
+      return $ SelectAggregate aggregateList
     tryParseColumn = do
-        SelectColumns <$> columnNamesParser
+      columnNames <- optional whitespaceParser *> columnNameParser `sepBy` (char ',' *> optional whitespaceParser)
+      return $ SelectColumns columnNames
 
-aggregateListParser :: Parser AggregateList
-aggregateListParser = Parser $ \query ->
-    case query /= "" || (dropWhiteSpaces query) /= ";" of
-    False -> Left "Column name is expected"
-    True -> case toLowerString (head (split query ' ')) == "from" of
-      True -> Left "No aggregate function was provided"
-      False -> case commaBetweenColumsNames (fst (splitStatementAtFrom query)) && areColumnsListedRight (fst (splitStatementAtFrom query)) && areColumnsListedRight (snd (splitStatementAtFrom query)) of
-        True -> case Right ( (getAggregateList (split (dropWhiteSpaces (fst (splitStatementAtFrom query))) ',')), snd (splitStatementAtFrom query)) of
-          Left err -> Left err
-          Right aggregateList -> Right ( (getAggregateList (split (dropWhiteSpaces (fst (splitStatementAtFrom query))) ',')), snd (splitStatementAtFrom query))
-        False -> Left "Aggregation functions are not listed right or from is missing"
+aggregateParser :: Parser Aggregate
+aggregateParser = do
+    func <- aggregateFunctionParser
+    _ <- optional whitespaceParser
+    _ <- char '('
+    _ <- optional whitespaceParser
+    columnName <- columnNameParser'
+    _ <- optional whitespaceParser
+    _ <- char ')'
+    pure (func, columnName)
+
+aggregateFunctionParser :: Parser AggregateFunction
+aggregateFunctionParser = sumParser <|> maxParser 
+  where
+    sumParser = do
+        _ <- queryStatementParser "sum"
+        pure Sum
+    maxParser = do
+        _ <- queryStatementParser "max"
+        pure Max
+
+columnNameParser :: Parser ColumnName
+columnNameParser = Parser $ \inp ->
+    case takeWhile (\x -> isAlphaNum x || x == '_') inp of
+        [] -> Left "Empty input"
+        xs -> Right (drop (length xs) inp, xs)
+
+sepBy :: Parser a -> Parser b -> Parser [a]
+sepBy p sep = do
+    x <- p
+    xs <- many (sep *> p)
+    return (x:xs)
+
 
 getAggregateList :: [String] -> Either ErrorMessage [(AggregateFunction, ColumnName)]
 getAggregateList [] = Right []
 getAggregateList (x:xs)
-  | "max(" `isPrefixOf` (dropWhiteSpaces x) && last (dropWhiteSpaces x) == ')' = Right ((Max, init (drop 4 (dropWhiteSpaces x))) ++ getAggregateList xs)
-  | "sum(" `isPrefixOf` (dropWhiteSpaces x) && last (dropWhiteSpaces x) == ')' = Right ((Sum, init (drop 4 (dropWhiteSpaces x))) ++ getAggregateList xs)
+  | "max(" `isPrefixOf` dropWhiteSpaces x && last (dropWhiteSpaces x) == ')' = Right ([(Max, init (drop 4 (dropWhiteSpaces x)))] ++ (fromRight [] $ getAggregateList xs))
+  | "sum(" `isPrefixOf` dropWhiteSpaces x && last (dropWhiteSpaces x) == ')' = Right ([(Sum, init (drop 4 (dropWhiteSpaces x)))] ++ (fromRight [] $ getAggregateList xs))
   | otherwise = Left "Incorrect syntax of aggregate functions"
 
--- aggregateParser :: Parser Aggregate
--- aggregateParser = do
---     func <- aggregateFunctionParser
---     _ <- optional whitespaceParser
---     _ <- char '('
---     _ <- optional whitespaceParser
---     columnName <- columnNameParser
---     _ <- optional whitespaceParser
---     _ <- char ')'
---     pure $ Aggregate func columnName
-
--- aggregateFunctionParser :: Parser AggregateFunction
--- aggregateFunctionParser = sumParser <|> maxParser
---   where
---     sumParser = do
---         _ <- queryStatementParser "sum"
---         pure Sum
---     maxParser = do
---         _ <- queryStatementParser "max"
---         pure Max
-
-columnNameParser :: Parser ColumnName
-columnNameParser = Parser $ \query ->  
-  case isOneWord' query of
-    True -> case isSpacesBetweenWords (fst (splitStatementAtParentheses query)) of
+columnNameParser' :: Parser ColumnName
+columnNameParser' = Parser $ \query ->  
+  -- case isOneWord' query of
+  --   True -> 
+  case isSpacesBetweenWords (fst (splitStatementAtParentheses query)) of
       True -> Right (dropWhiteSpaces (fst (splitStatementAtParentheses query)), snd (splitStatementAtParentheses query))
       False -> Left "There is more than one column name in aggregation function"
-    False -> Left ("There is more than one column name in aggregation function or ')' is missing")
+    -- False -> Left ("There is more than one column name in aggregation function or ')' is missing")
 
-isOneWord' :: String -> Bool
-isOneWord' (x:xs)
-  | x == ',' = False
-  | x == ' ' = isOneWord' xs
-  | x == ')' = True
-  | otherwise = isOneWord' xs
+-- isOneWord' :: String -> Bool
+-- isOneWord' [] = True
+-- isOneWord' (x:xs)
+--   | x == ',' = False
+--   | x == ' ' = isOneWord' xs
+--   | x == ')' = True
+--   | otherwise = isOneWord' xs
 
 isSpacesBetweenWords :: String -> Bool
 isSpacesBetweenWords [] = True
@@ -418,15 +436,15 @@ splitStatementAtParentheses = go [] where
     | ")" `isPrefixOf` toLowerString str = (reverse prefix, str)
     | otherwise = go (x:prefix) xs
 
-columnNamesParser :: Parser [ColumnName]
-columnNamesParser = Parser $ \query ->
-  case query == "" || (dropWhiteSpaces query) == ";" of
-    True -> Left "Column name is expected"
-    False -> case toLowerString (head (split query ' ')) == "from" of
-      True -> Left "No column name was provided"
-      False -> case commaBetweenColumsNames (fst (splitStatementAtFrom query)) && areColumnsListedRight (fst (splitStatementAtFrom query)) && areColumnsListedRight (snd (splitStatementAtFrom query)) of
-        True -> Right ((split (dropWhiteSpaces (fst (splitStatementAtFrom query))) ','), snd (splitStatementAtFrom query))
-        False -> Left "Column names are not listed right or from is missing"
+-- columnNamesParser :: Parser [ColumnName]
+-- columnNamesParser = Parser $ \query ->
+--   case query == "" || (dropWhiteSpaces query) == ";" of
+--     True -> Left "Column name is expected"
+--     False -> case toLowerString (head (split query ' ')) == "from" of
+--       True -> Left "No column name was provided"
+--       False -> case commaBetweenColumsNames (fst (splitStatementAtFrom query)) &&  (fst (splitStatementAtFrom query)) && areColumnsListedRight (snd (splitStatementAtFrom query)) of
+--         True -> Right ((split (dropWhiteSpaces (fst (splitStatementAtFrom query))) ','), snd (splitStatementAtFrom query))
+--         False -> Left "Column names are not listed right or from is missing"
 
 areColumnsListedRight :: String -> Bool
 areColumnsListedRight str

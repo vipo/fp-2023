@@ -15,7 +15,7 @@ module Lib2
   )
 where
 
-import Data.Char (toLower)
+import Data.Char (toLower, isDigit)
 import Data.List (elemIndex, find, isPrefixOf, isSuffixOf)
 import Data.Maybe (fromMaybe)
 import DataFrame (Column (..), ColumnType (..), DataFrame (..), Row, Value (..))
@@ -36,7 +36,7 @@ data WhereClause
   | Conditions [Condition]
   deriving (Show, Eq)
 
-data Condition 
+data Condition
   = Equals String ConditionValue
   | GreaterThan String ConditionValue
   | LessThan String ConditionValue
@@ -69,35 +69,120 @@ parseAggregateFunction :: [String] -> Either ErrorMessage ParsedStatement
 parseAggregateFunction statement = parseFunctionBody
   where
     (_, afterWhere) = break (== "where") statement
-    isWhereAnd = length afterWhere > 0
+    (_, afterIs) = break (== "is") afterWhere
     (columnWords, fromAndWhere) = break (== "from") statement
-    (["from", tableName], ["where", boolColName, "is", boolString]) =
-      if length fromAndWhere == 6 && head fromAndWhere == "from" && fromAndWhere !! 2 == "where" && fromAndWhere !! 4 == "is"
-        then break (== "where") fromAndWhere
-        else
-          if length fromAndWhere == 2 && head fromAndWhere == "from"
-            then (["from", fromAndWhere !! 1], ["where", "", "is", ""])
-            else (["from", ""], ["where", "", "is", ""])
-    boolStringIsValid = boolString == "true" || boolString == "false" || boolString == ""
-    parsedBoolString = boolString == "true"
-    colIsBool = getColumnType (getColumnByName boolColName (columns (getDataFrameByName tableName))) == BoolType
-    isWhereBoolTF = boolColName /= "" && boolString /= ""
-    whereFilter =
-      if boolStringIsValid && columnNameExists tableName boolColName && colIsBool
-        then Just (IsValueBool parsedBoolString tableName boolColName)
-        else Nothing
+    
+    wordsAfterWhere = length afterWhere
+    hasWhereClause = wordsAfterWhere > 0
+    isBoolIsTrueFalseClauseLike = hasWhereClause && length afterIs == 2
+    isAndClauseLike = hasWhereClause && null afterIs
+
+    statementClause :: Either ErrorMessage (Maybe WhereClause)
+    statementClause
+      | not hasWhereClause && length fromAndWhere == 2 = Right Nothing
+      | isBoolIsTrueFalseClauseLike = case parseWhereBoolIsTrueFalse fromAndWhere of
+        Left err -> Left err
+        Right clause -> Right $ Just clause
+      | isAndClauseLike = case parseWhereAnd fromAndWhere of
+        Left err -> Left err
+        Right clause -> Right $ Just clause
+      | otherwise = Left "Unsupported or invalid statement"
+
     columnName = drop 4 $ init (head columnWords)
-    tableAndColumnExists = tableNameExists tableName && columnNameExists tableName columnName
+    tableName
+      | length fromAndWhere >= 2 && head fromAndWhere == "from" = fromAndWhere !! 1
+      | otherwise = ""
+
     columnString = unwords columnWords
     columnNames = map (dropWhile (== ' ')) $ splitByComma columnString
 
     parseFunctionBody :: Either ErrorMessage ParsedStatement
-    parseFunctionBody
-      | not boolStringIsValid && columnNameExists tableName boolColName || boolStringIsValid && (boolString /= "") && not (columnNameExists tableName boolColName) || isWhereBoolTF && not colIsBool = Left "Unsupported or invalid statement"
-      | "avg(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && tableAndColumnExists && length columnWords == 1 = Right (AvgColumn tableName columnName whereFilter)
-      | "max(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && tableAndColumnExists && length columnWords == 1 = Right (MaxColumn tableName columnName whereFilter)
-      | tableNameExists tableName && all (columnNameExists tableName) columnNames = Right (SelectColumns tableName columnNames whereFilter)
-      | otherwise = Left "Unsupported or invalid statement"
+    parseFunctionBody = case statementClause of
+      Left err -> Left err
+      Right clause
+        | "avg(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && length columnWords == 1 -> Right (AvgColumn tableName columnName clause)
+        | "max(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && length columnWords == 1 -> Right (MaxColumn tableName columnName clause)
+        | all (columnNameExists tableName) columnNames -> Right (SelectColumns tableName columnNames clause)
+        | otherwise -> Left "Unsupported or invalid statement"
+
+parseWhereBoolIsTrueFalse :: [String] ->Either ErrorMessage WhereClause
+parseWhereBoolIsTrueFalse fromAndWhere
+  | matchesWhereBoolTrueFalsePatern && isValidWhereClause = splitStatementToWhereClause fromAndWhere
+  | otherwise = Left "Unsupported or invalid statement"
+  where
+    matchesWhereBoolTrueFalsePatern = length fromAndWhere == 6 && head fromAndWhere == "from" && fromAndWhere !! 2 == "where" && fromAndWhere !! 4 == "is" && (fromAndWhere !! 5 == "false" || fromAndWhere !! 5 == "true" )
+    tableName = fromAndWhere !! 1
+    columnName = fromAndWhere !! 3
+    tableColumns = columns (getDataFrameByName tableName)
+    columnIsBool = getColumnType (getColumnByName columnName tableColumns) == BoolType
+    isValidWhereClause = columnNameExists tableName columnName && columnIsBool
+
+parseWhereAnd :: [String] -> Either ErrorMessage WhereClause
+parseWhereAnd fromAndWhere
+  | matchesWhereAndPattern (drop 3 fromAndWhere) (fromAndWhere !! 1) = splitStatementToAndClause (drop 3 fromAndWhere) (fromAndWhere !! 1)
+  | otherwise = Left "Unsupported or invalid statement"
+  where
+-- Unsafe
+    splitStatementToAndClause :: [String] -> TableName -> Either ErrorMessage WhereClause
+    splitStatementToAndClause strList tableName = Right (Conditions (getConditionList strList tableName))
+    splitStatementToAndClause _ _ = Left "Unsupported or invalid statement"
+
+-- Unsafe
+    getConditionList :: [String] -> TableName -> [Condition]
+    getConditionList [condition1, operator, condition2] tableName = [getCondition condition1 operator condition2 tableName]
+    getConditionList (condition1 : operator : condition2 : _ : xs) tableName = getCondition condition1 operator condition2 tableName : getConditionList xs tableName
+
+-- Unsafe
+getConditionValue :: String -> ConditionValue
+getConditionValue condition
+  | isNumber condition = IntValue (read condition :: Int)
+  | length condition > 2 && "'" `isPrefixOf` condition && "'" `isSuffixOf` condition = StrValue (drop 1 (init condition))
+
+-- Unsafe
+getCondition :: String -> String -> String -> String -> Condition
+getCondition val1 op val2 tableName
+  | val1IsColumn && op == "=" && col1MatchesVal2 = Equals val1 $ getConditionValue val2
+  | val2IsColumn && op == "=" && col2MatchesVal1 = Equals val2 $ getConditionValue val1
+  | val1IsColumn && op == "<" && col1MatchesVal2 = LessThan val1 $ getConditionValue val2
+  | val2IsColumn && op == "<" && col2MatchesVal1 = LessThan val2 $ getConditionValue val1
+  | val1IsColumn && op == ">" && col1MatchesVal2 = GreaterThan val1 $ getConditionValue val2
+  | val2IsColumn && op == ">" && col2MatchesVal1 = GreaterThan val2 $ getConditionValue val1
+  | otherwise = Equals "play stupid games" $ StrValue "Win stupid shit"
+
+  where
+    val1IsColumn = columnNameExists tableName val1
+    val2IsColumn = columnNameExists tableName val2
+    df = getDataFrameByName tableName
+    val1Column = getColumnByName val1 (columns df)
+    val2Column = getColumnByName val2 (columns df)
+    col1MatchesVal2 = compareMaybe (getColumnType val1Column) (parseType val2)
+    col2MatchesVal1 = compareMaybe (getColumnType val2Column) (parseType val1)
+
+matchesWhereAndPattern :: [String] -> TableName -> Bool
+matchesWhereAndPattern [condition1, operator, condition2] tableName = isWhereAndOperation [condition1, operator, condition2] tableName
+matchesWhereAndPattern (condition1 : operator: condition2 : andString: xs) tableName = matchesWhereAndPattern [condition1, operator, condition2] tableName && andString == "and" && matchesWhereAndPattern xs tableName
+matchesWhereAndPattern _ _ = False
+
+isWhereAndOperation :: [String] -> TableName -> Bool
+isWhereAndOperation [condition1, operator, condition2] tableName
+  | columnNameExists tableName condition1  && elem operator [">", "<", "="] && compareMaybe (getColumnType (getColumnByName condition1 (columns (getDataFrameByName tableName)))) (parseType condition2)  = True
+  | columnNameExists tableName condition2  && elem operator [">", "<", "="] && compareMaybe (getColumnType (getColumnByName condition2 (columns (getDataFrameByName tableName)))) (parseType condition1)  = True
+  | otherwise = False
+isWhereAndOperation _ _ = False
+
+parseType :: String -> Maybe ColumnType
+parseType str
+  | isNumber str = Just IntegerType
+  | "'" `isPrefixOf` str && "'" `isSuffixOf` str = Just StringType
+  | otherwise = Nothing
+
+
+splitStatementToWhereClause :: [String] -> Either ErrorMessage WhereClause
+splitStatementToWhereClause ["from", tableName, "where", boolColName, "is", boolString] = Right $ IsValueBool parsedBoolString tableName boolColName
+  where
+    parsedBoolString = boolString == "true"
+splitStatementToWhereClause _ = Left "Unsupported or invalid statement"
+
 
 splitByComma :: String -> [String]
 splitByComma = map (dropWhile (== ' ')) . words . map (\c -> if c == ',' then ' ' else c)
@@ -259,3 +344,13 @@ isNullValue _ = False
 columns :: DataFrame -> [Column]
 columns (DataFrame cols _) = cols
 
+isNumber :: String -> Bool
+isNumber "" = False
+isNumber xs =
+  case dropWhile isDigit xs of
+    "" -> True
+    _ -> False
+
+compareMaybe :: Eq a => a -> Maybe a -> Bool
+compareMaybe val1 (Just val2) = val1 == val2
+compareMaybe _ Nothing = False

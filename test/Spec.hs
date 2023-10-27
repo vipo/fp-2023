@@ -133,6 +133,24 @@ main = hspec $ do
     it "should return an error for statements without semicolon for SHOW TABLES" $ do
       parseStatement "SHOW TABLES" `shouldBe` Left "Unsupported or invalid statement"
 
+  describe "parseStatement for select... with where and" $ do
+    it "should parse correct select statements with where and" $ do
+      parseStatement "select max(flag) from flags where flag < 'b';" `shouldBe` Right (MaxColumn "flags" "flag" (Just (Conditions [LessThan "flag" (StrValue "b")])))
+      parseStatement "select flag, value from flags where flag < 'c';" `shouldBe` Right (SelectColumns "flags" ["flag","value"] (Just (Conditions [LessThan "flag" (StrValue "c")])))
+      parseStatement "select flag, value from flags where flag < 'c' and flag < 'c' and where flag < 'd';" `shouldBe` Right (SelectColumns "flags" ["flag","value"] (Just (Conditions [LessThan "flag" (StrValue "c"),GreaterThan "flag" (StrValue "a"),LessThan "flag" (StrValue "d")])))
+      parseStatement "selEct flag, value FRom flags wheRe flag < 'c' and flag < 'C' and where flag = 'd';" `shouldBe` Right (SelectColumns "flags" ["flag","value"] (Just (Conditions [LessThan "flag" (StrValue "c"),GreaterThan "flag" (StrValue "C"),Equals "flag" (StrValue "d")])))
+
+    it "shouldn't parse where and statements with mismatched and conditions e.g. int < string" $ do
+      parseStatement "select value from flags where flag < 2;" `shouldBe` Left "Unsupported or invalid statement"
+      parseStatement "select flag from flags where 2 < flag;" `shouldBe` Left "Unsupported or invalid statement"
+
+    it "shouldn't parse statements with incomplete where and" $ do
+      parseStatement "select id, name from employees where name < 'vi' and;" `shouldBe` "Unsupported or invalid statement"   
+      parseStatement "select id, name from employees where name <;" `shouldBe` "Unsupported or invalid statement"   
+      parseStatement "select id, name from employees where name;" `shouldBe` "Unsupported or invalid statement"  
+      parseStatement "select id, name from employees wher;" `shouldBe` "Unsupported or invalid statement"  
+
+
   describe "executeStatement for SHOW TABLES in Lib2" $ do
     it "should list all tables for 'SHOW TABLES;'" $ do
       let expectedColumns = [Column "Tables" StringType]

@@ -328,7 +328,7 @@ filterRowsByConditions name conditions
         Nothing  -> NullValue
 
     columnIndex :: String -> [String] -> Maybe Int
-    columnIndex colName columnNames = elemIndex colName columnNames
+    columnIndex = elemIndex
 
 --selectColumns
 selectColumnsFromDataFrame :: Maybe WhereClause -> TableName -> [Int] -> Either ErrorMessage DataFrame

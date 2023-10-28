@@ -71,14 +71,14 @@ mapStatementType statement = case statement of
   ["show", "tables"] -> Right ShowTables
   "select" : rest -> parseSelect rest
   _ -> Left "Unsupported or invalid statement"
-    
+
 parseSelect :: [String] -> Either ErrorMessage ParsedStatement
 parseSelect statement = parseFunctionBody
   where
     (_, afterWhere) = break (== "where") statement
     (_, afterIs) = break (== "is") afterWhere
     (columnWords, fromAndWhere) = break (== "from") statement
-    
+
     wordsAfterWhere = length afterWhere
     hasWhereClause = wordsAfterWhere > 0
     isBoolIsTrueFalseClauseLike = hasWhereClause && length afterIs == 2
@@ -96,14 +96,14 @@ parseSelect statement = parseFunctionBody
       | otherwise = Left "Unsupported or invalid statement"
 
     columnName = drop 4 $ init (head columnWords)
-    
+
     tableName
       | length fromAndWhere >= 2 && head fromAndWhere == "from" = fromAndWhere !! 1
       | otherwise = ""
 
     columnString = unwords columnWords
     columnNames = map (dropWhile (== ' ')) $ splitByComma columnString
-  
+
     parseFunctionBody :: Either ErrorMessage ParsedStatement
     parseFunctionBody = case statementClause of
       Left err -> Left err
@@ -111,7 +111,7 @@ parseSelect statement = parseFunctionBody
         | length columnWords == 1 && head columnWords == "*"-> Right (SelectAll tableName clause)
         | length columnWords == 1 && "avg(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && columnNameExists tableName columnName -> Right (AvgColumn tableName columnName clause)
         | length columnWords == 1 && "max(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && columnNameExists tableName columnName -> Right (MaxColumn tableName columnName clause)
-        | all (columnNameExists tableName) columnNames -> Right (SelectColumns tableName columnNames clause)
+        | not (null columnNames) && all (columnNameExists tableName) columnNames -> Right (SelectColumns tableName columnNames clause)
         | otherwise -> Left "Unsupported or invalid statement"
 
 parseWhereBoolIsTrueFalse :: [String] ->Either ErrorMessage WhereClause
@@ -239,22 +239,22 @@ executeStatement (MaxColumn tableName columnName whereCondition) = case sqlMax (
   Right value -> Right (DataFrame [getColumnByName columnName (columns (getDataFrameByName tableName))] [[value]])
   Left msg -> Left msg
 executeStatement (SelectAll tableName whereCondition) =
-  Right $ executeWhere whereCondition tableName  
+  Right $ executeWhere whereCondition tableName
 
 executeWhere :: Maybe WhereClause -> TableName -> DataFrame
-executeWhere whereClause tableName = 
+executeWhere whereClause tableName =
     case whereClause of
-        Just (IsValueBool bool table column) -> 
+        Just (IsValueBool bool table column) ->
             case filterRowsByBoolColumn table column bool of
                 Right df -> df
                 Left _   -> getDataFrameByName tableName
-        
-        Just (Conditions conditions) -> 
+
+        Just (Conditions conditions) ->
             case filterRowsByConditions tableName conditions of
                 Right df -> df
                 Left _   -> getDataFrameByName tableName
-        
-        Nothing -> 
+
+        Nothing ->
             getDataFrameByName tableName
 
 -- Filter rows based on whether the specified column's value is TRUE or FALSE.
@@ -298,10 +298,10 @@ filterRowsByConditions name conditions
     matchesConditions (c:cs) row = evaluateCondition c row && matchesConditions cs row
 
     evaluateCondition :: Condition -> Row -> Bool
-    evaluateCondition (Equals colName (StrValue val)) row = 
+    evaluateCondition (Equals colName (StrValue val)) row =
         getValueByColumnName colName row (getColNameList currentColumns) == StringValue val
 
-    evaluateCondition (Equals colName (IntValue val)) row = 
+    evaluateCondition (Equals colName (IntValue val)) row =
         case getValueByColumnName colName row (getColNameList currentColumns) of
             IntegerValue intVal -> intVal == val
             _ -> False
@@ -311,7 +311,7 @@ filterRowsByConditions name conditions
             StringValue strVal -> strVal > val
             _ -> False
 
-    evaluateCondition (GreaterThan colName (IntValue val)) row = 
+    evaluateCondition (GreaterThan colName (IntValue val)) row =
         case getValueByColumnName colName row (getColNameList currentColumns) of
             IntegerValue intVal -> intVal > val
             _ -> False
@@ -321,7 +321,7 @@ filterRowsByConditions name conditions
             StringValue strVal -> strVal < val
             _ -> False
 
-    evaluateCondition (LessThan colName (IntValue val)) row = 
+    evaluateCondition (LessThan colName (IntValue val)) row =
         case getValueByColumnName colName row (getColNameList currentColumns) of
             IntegerValue intVal -> intVal < val
             _ -> False
@@ -335,7 +335,7 @@ filterRowsByConditions name conditions
         case getValueByColumnName colName row (getColNameList currentColumns) of
             IntegerValue intVal -> intVal >= val
             _ -> False
-    
+
     evaluateCondition (LessthanOrEqual colName (StrValue val)) row =
         case getValueByColumnName colName row (getColNameList currentColumns) of
             StringValue strVal -> strVal <= val
@@ -346,10 +346,10 @@ filterRowsByConditions name conditions
             IntegerValue intVal -> intVal <= val
             _ -> False
 
-    evaluateCondition (NotEqual colName (StrValue val)) row = 
+    evaluateCondition (NotEqual colName (StrValue val)) row =
         getValueByColumnName colName row (getColNameList currentColumns) /= StringValue val
 
-    evaluateCondition (NotEqual colName (IntValue val)) row = 
+    evaluateCondition (NotEqual colName (IntValue val)) row =
         case getValueByColumnName colName row (getColNameList currentColumns) of
             IntegerValue intVal -> intVal /= val
             _ -> False
@@ -370,7 +370,7 @@ selectColumnsFromDataFrame whereCondition tableName columnIndices = do
     Right $ DataFrame selectedColumns selectedRows
 
 selectSpecifiedColumnsFromTable :: TableName -> [String] -> Maybe WhereClause -> Either ErrorMessage DataFrame
-selectSpecifiedColumnsFromTable tableName columnNames whereCondition = 
+selectSpecifiedColumnsFromTable tableName columnNames whereCondition =
     case lookup tableName database of
         Just df ->
             case mapM (`findColumnIndex` df) columnNames of
@@ -380,7 +380,7 @@ selectSpecifiedColumnsFromTable tableName columnNames whereCondition =
 
 --AVG agregate function
 averageOfIntValues :: [Value] -> Either ErrorMessage DataFrame
-averageOfIntValues validIntValues 
+averageOfIntValues validIntValues
   | null validIntValues = Left "No valid integers found in the specified column"
   | otherwise =
       let sumValues = sumIntValues validIntValues
@@ -388,9 +388,9 @@ averageOfIntValues validIntValues
       in Right $ DataFrame [Column "AVG" IntegerType] [[IntegerValue (round avg)]]
 
 calculateAverageFromTableColumn :: TableName -> String -> Maybe WhereClause -> Either ErrorMessage DataFrame
-calculateAverageFromTableColumn tableName columnName whereCondition = 
+calculateAverageFromTableColumn tableName columnName whereCondition =
     case lookup tableName database of
-        Just df@(DataFrame _ _) ->
+        Just df ->
             case findColumnIndex columnName df of
                 Just columnIndex ->
                     let values = map (\row -> getColumnValue columnIndex row) (getDataFrameRows (executeWhere whereCondition tableName))

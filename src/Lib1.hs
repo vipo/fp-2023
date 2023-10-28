@@ -6,6 +6,9 @@ module Lib1
     findTableByName,
     validateDataFrame,
     renderDataFrameAsTable,
+    checkTupleMatch,
+    zipColumnsAndValues,
+    checkRowSizes
   )
 where
 

@@ -108,9 +108,9 @@ parseSelect statement = parseFunctionBody
     parseFunctionBody = case statementClause of
       Left err -> Left err
       Right clause
-        | head columnWords == "*" && length columnWords == 1 -> Right (SelectAll tableName clause)
-        | "avg(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && length columnWords == 1 && columnNameExists tableName columnName -> Right (AvgColumn tableName columnName clause)
-        | "max(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && length columnWords == 1 && columnNameExists tableName columnName -> Right (MaxColumn tableName columnName clause)
+        | length columnWords == 1 && head columnWords == "*"-> Right (SelectAll tableName clause)
+        | length columnWords == 1 && "avg(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && columnNameExists tableName columnName -> Right (AvgColumn tableName columnName clause)
+        | length columnWords == 1 && "max(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && columnNameExists tableName columnName -> Right (MaxColumn tableName columnName clause)
         | all (columnNameExists tableName) columnNames -> Right (SelectColumns tableName columnNames clause)
         | otherwise -> Left "Unsupported or invalid statement"
 
@@ -179,8 +179,6 @@ isWhereAndOperation [condition1, operator, condition2] tableName
   | columnNameExists tableName condition2 && elem operator [">", "<", "=", "<>", "<=", ">="] && col2MatchesVal1 = True
   | otherwise = False
   where
-    val1IsColumn = columnNameExists tableName condition1
-    val2IsColumn = columnNameExists tableName condition2
     df = getDataFrameByName tableName
     val1Column = getColumnByName condition1 (columns df)
     val2Column = getColumnByName condition2 (columns df)
@@ -204,7 +202,7 @@ splitStatementToWhereClause _ = Left "Unsupported or invalid statement"
 selectAllFromTable :: TableName -> Maybe WhereClause -> Either ErrorMessage DataFrame
 selectAllFromTable tableName whereCondition =
     case lookup tableName database of
-        Just df -> Right (executeWhere whereCondition tableName)
+        Just _ -> Right (executeWhere whereCondition tableName)
         Nothing -> Left $ "Table " ++ tableName ++ " not found"
 
 splitByComma :: String -> [String]
@@ -422,6 +420,7 @@ sqlMax df col
     maximum'' :: [Value] -> Value
     maximum'' [x] = x
     maximum'' (x : x' : xs) = maximum'' ((if compValue x x' then x else x') : xs)
+    maximum'' _ = NullValue
 
     compValue :: Value -> Value -> Bool
     compValue (IntegerValue val1) (IntegerValue val2) = val1 > val2

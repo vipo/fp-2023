@@ -64,8 +64,8 @@ main = hspec $ do
     it "should parse 'SHOW TABLE employees;' correctly" $ do
       parseStatement "SHOW TABLE employees;" `shouldBe` Right (ShowTable "employees")
 
-    it "should return an error for unsupported statements" $ do
-      parseStatement "SELECT * FROM employees;" `shouldBe` Left "Unsupported or invalid statement"
+    it "should parse SELECT * FROM ..." $ do
+      parseStatement "SELECT * FROM employees;" `shouldBe` Right (SelectAll "employees" Nothing)
 
     it "should return an error for malformed statements" $ do
       parseStatement "SHOW employees;" `shouldBe` Left "Unsupported or invalid statement"

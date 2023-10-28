@@ -26,9 +26,13 @@ type ErrorMessage = String
 data ParsedStatement
   = ShowTable TableName
   | ShowTables
+  | SelectAll TableName (Maybe WhereClause)
   | AvgColumn TableName String (Maybe WhereClause)
   | SelectColumns TableName [String] (Maybe WhereClause)
   | MaxColumn TableName String (Maybe WhereClause)
+  deriving (Show, Eq)
+
+data AllColumns = AllColumns 
   deriving (Show, Eq)
 
 data WhereClause
@@ -104,8 +108,9 @@ parseSelect statement = parseFunctionBody
     parseFunctionBody = case statementClause of
       Left err -> Left err
       Right clause
-        | "avg(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && length columnWords == 1 && columnNameExists tableName columnName -> Right (AvgColumn tableName columnName clause)
-        | "max(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && length columnWords == 1 && columnNameExists tableName columnName -> Right (MaxColumn tableName columnName clause)
+        | length columnWords == 1 && head columnWords == "*"-> Right (SelectAll tableName clause)
+        | length columnWords == 1 && "avg(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && columnNameExists tableName columnName -> Right (AvgColumn tableName columnName clause)
+        | length columnWords == 1 && "max(" `isPrefixOf` head columnWords && ")" `isSuffixOf` head columnWords && columnNameExists tableName columnName -> Right (MaxColumn tableName columnName clause)
         | all (columnNameExists tableName) columnNames -> Right (SelectColumns tableName columnNames clause)
         | otherwise -> Left "Unsupported or invalid statement"
 
@@ -174,8 +179,6 @@ isWhereAndOperation [condition1, operator, condition2] tableName
   | columnNameExists tableName condition2 && elem operator [">", "<", "=", "<>", "<=", ">="] && col2MatchesVal1 = True
   | otherwise = False
   where
-    val1IsColumn = columnNameExists tableName condition1
-    val2IsColumn = columnNameExists tableName condition2
     df = getDataFrameByName tableName
     val1Column = getColumnByName condition1 (columns df)
     val2Column = getColumnByName condition2 (columns df)
@@ -196,6 +199,11 @@ splitStatementToWhereClause ["from", tableName, "where", boolColName, "is", bool
     parsedBoolString = boolString == "true"
 splitStatementToWhereClause _ = Left "Unsupported or invalid statement"
 
+selectAllFromTable :: TableName -> Maybe WhereClause -> Either ErrorMessage DataFrame
+selectAllFromTable tableName whereCondition =
+    case lookup tableName database of
+        Just _ -> Right (executeWhere whereCondition tableName)
+        Nothing -> Left $ "Table " ++ tableName ++ " not found"
 
 splitByComma :: String -> [String]
 splitByComma = map (dropWhile (== ' ')) . words . map (\c -> if c == ',' then ' ' else c)
@@ -230,18 +238,24 @@ executeStatement (SelectColumns tableName columnNames whereCondition) = selectSp
 executeStatement (MaxColumn tableName columnName whereCondition) = case sqlMax (executeWhere whereCondition tableName) columnName of
   Right value -> Right (DataFrame [getColumnByName columnName (columns (getDataFrameByName tableName))] [[value]])
   Left msg -> Left msg
+executeStatement (SelectAll tableName whereCondition) =
+  Right $ executeWhere whereCondition tableName  
 
 executeWhere :: Maybe WhereClause -> TableName -> DataFrame
-executeWhere whereClause tableName = case whereClause of
-  Just (IsValueBool bool table column) -> case filterRowsByBoolColumn table column bool of
-    Right df -> df
-    Left _ -> getDataFrameByName tableName
-  
-  Just (Conditions conditions) -> case filterRowsByConditions tableName conditions of
-    Right df -> df
-    Left _ -> getDataFrameByName tableName
-  
-  Nothing -> getDataFrameByName tableName
+executeWhere whereClause tableName = 
+    case whereClause of
+        Just (IsValueBool bool table column) -> 
+            case filterRowsByBoolColumn table column bool of
+                Right df -> df
+                Left _   -> getDataFrameByName tableName
+        
+        Just (Conditions conditions) -> 
+            case filterRowsByConditions tableName conditions of
+                Right df -> df
+                Left _   -> getDataFrameByName tableName
+        
+        Nothing -> 
+            getDataFrameByName tableName
 
 -- Filter rows based on whether the specified column's value is TRUE or FALSE.
 filterRowsByBoolColumn :: TableName -> String -> Bool -> Either ErrorMessage DataFrame
@@ -406,6 +420,7 @@ sqlMax df col
     maximum'' :: [Value] -> Value
     maximum'' [x] = x
     maximum'' (x : x' : xs) = maximum'' ((if compValue x x' then x else x') : xs)
+    maximum'' _ = NullValue
 
     compValue :: Value -> Value -> Bool
     compValue (IntegerValue val1) (IntegerValue val2) = val1 > val2

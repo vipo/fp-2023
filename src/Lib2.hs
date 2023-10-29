@@ -225,3 +225,31 @@ rows (DataFrame _ rs) = rs
 
 columns :: DataFrame -> [Column]
 columns (DataFrame cols _) = cols
+
+parseStatement :: String -> Either ErrorMessage ParsedStatement
+parseStatement input = do
+  let (selectPart, rest) = splitSQL input
+  return (ParsedStatement (map toLower selectPart) rest)
+
+splitSQL :: String -> (String, String)
+splitSQL input = case breakOnCaseInsensitive "SELECT" input of
+  Just (select, rest) -> (select, rest)
+  Nothing -> ("", input)
+
+breakOnCaseInsensitive :: String -> String -> Maybe (String, String)
+breakOnCaseInsensitive _ [] = Nothing
+breakOnCaseInsensitive toFind text@(t:ts) =
+  if isPrefixCaseInsensitive toFind text
+    then Just ("", text)
+    else case breakOnCaseInsensitive toFind ts of
+      Just (before, after) -> Just (t : before, after)
+      Nothing -> Nothing
+
+isPrefixCaseInsensitive :: String -> String -> Bool
+isPrefixCaseInsensitive [] _ = True
+isPrefixCaseInsensitive _ [] = False
+isPrefixCaseInsensitive (a:as) (b:bs) = toLower a == toLower b && isPrefixCaseInsensitive as bs
+
+executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
+executeStatement (ParsedStatement selectPart rest) = do
+  Left "Not implemented: executeStatement"

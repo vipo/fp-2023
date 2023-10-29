@@ -60,12 +60,16 @@ main = hspec $ do
       Lib2.parseStatement "select id from employees;" `shouldBe` Right (Select (SelectColumns ["id"]) "employees" Nothing)
     it "shows right multiple columns" $ do
       Lib2.parseStatement "select id, name from employees;" `shouldBe` Right (Select (SelectColumns ["id", "name"]) "employees" Nothing)
+    it "shows right multiple columns with many whitespaces" $ do
+      Lib2.parseStatement "select      id     ,      name     from      employees;" `shouldBe` Right (Select (SelectColumns ["id", "name"]) "employees" Nothing)
     it "doesn't execute queries without a ';'" $ do
       Lib2.parseStatement "select id, name from employees" `shouldSatisfy` isLeft
     it "shows the max of the specified column from the specified table" $ do
-      Lib2.parseStatement "select max(id) from employees;" `shouldBe` Right (Select (SelectAggregate [(Max, "id")]) "employees" Nothing)
+      Lib2.parseStatement "select max(id) from employees;" `shouldBe` Right (Select (SelectAggregate [(Max, "id")]) "employees" Nothing);
     it "shows multiple aggregate functions" $ do
       Lib2.parseStatement "select max(id), sum(id) from employees;" `shouldBe` Right (Select (SelectAggregate [(Max, "id"), (Sum, "id")]) "employees" Nothing)
+    it "shows multiple aggregate functions with many whitespaces" $ do
+      Lib2.parseStatement "select max    (       id)    ,    sum     (    id    ) from employees;" `shouldBe` Right (Select (SelectAggregate [(Max, "id"), (Sum, "id")]) "employees" Nothing)
     it "doesn't let to mismatch aggregates and columns" $ do
       Lib2.parseStatement "select max(id), id from employees;" `shouldSatisfy` isLeft
     it "doesn't let to put multiple columns in the aggregate function" $ do
@@ -92,6 +96,15 @@ main = hspec $ do
     it "executes 'show table 'tablename';'" $ do
       Lib2.executeStatement ShowTable {table = "employees"} `shouldSatisfy` isRight
     it "executes 'show tables;'" $ do
-      Lib2.executeStatement ShowTables {} `shouldSatisfy` isRight
+      Lib2.executeStatement ShowTables {} `shouldSatisfy` isRight  
     it "doesn't execute a select statement with non existant 'tablename' " $ do
       Lib2.executeStatement SelectAll {table = "ananasas", selectWhere = Just [(Condition (ColumnOperand "abrikosas") IsGreaterOrEqual (ColumnOperand "surname"))]} `shouldSatisfy` isLeft
+    it "does not find provided non-existing columns in the table" $ do
+      Lib2.executeStatement Select {selectQuery = (SelectColumns ["abrikosas", "bananas"]), table = "employees", selectWhere = Nothing } `shouldSatisfy` isLeft 
+    it "doesn't let to sum non-integer values" $ do
+      Lib2.executeStatement Select {selectQuery = (SelectAggregate [(Sum, "name")]), table = "employees", selectWhere = Nothing } `shouldSatisfy` isLeft
+    it "doesn't let to find max of non-existing column" $ do
+      Lib2.executeStatement Select {selectQuery = (SelectAggregate [(Max, "flag")]), table = "employees", selectWhere = Nothing } `shouldSatisfy` isLeft
+    it "doesn't let to compare when condition is faulty" $ do
+      Lib2.executeStatement Select {selectQuery = (SelectColumns [("id")]), table = "employees", selectWhere = Just [(Condition (ConstantOperand(StringValue "labas")) IsGreaterOrEqual (ConstantOperand (BoolValue True)))] } `shouldSatisfy` isLeft
+      

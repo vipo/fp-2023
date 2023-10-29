@@ -37,9 +37,6 @@ import Data.Maybe (fromMaybe)
 import Data.Either
 import Text.ParserCombinators.ReadP (get)
 import Data.Foldable (find)
-import Data.Monoid (All)
-import GHC.Windows (errCodeToIOError)
-import Debug.Trace
 
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
@@ -92,6 +89,9 @@ data ParsedStatement =
   }
   | ShowTables { }
     deriving (Show, Eq)
+
+data Trash = Trash String
+  deriving (Show, Eq)
 
 -----------------------------------------------------------------------------------------------------------
 newtype Parser a = Parser {
@@ -182,55 +182,80 @@ parseStatement query = case runParser p query of
                <|> selectStatementParser
                <|> selectAllParser
 
-
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
 executeStatement ShowTables = Right $ createTablesDataFrame findTableNames
 executeStatement (ShowTable table) = Right (createColumnsDataFrame (columnsToList (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database))) table)
 executeStatement (Select selectQuery table selectWhere) =
-  case validateDataFrame (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) of
-    True -> case selectWhere of
-      Just conditions -> case doColumnsExist (whereConditionColumnList conditions) (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) of
-        True -> case selectQuery of
+  case doTableExist table of
+    True -> case validateDataFrame (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) of
+      True -> case selectWhere of
+        Just conditions -> case doColumnsExist (whereConditionColumnList conditions) (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) of
+          True -> case isFaultyConditions conditions of
+            False -> case selectQuery of
+              SelectColumns cols -> do
+                case doColumnsExist cols (filterSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) conditions) of 
+                  True -> case areRowsEmpty (filterSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) conditions) of 
+                    False -> Right  (uncurry createSelectDataFrame (getColumnsRows cols (filterSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) conditions)))
+                    True -> Left "There are no results with the provided conditions or the condition is faulty"
+                  False -> Left "Provided column name does not exist in database or you are mixing aggregate functions and columns"
+              SelectAggregate aggList -> do
+                  case areRowsEmpty (filterSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) conditions) of 
+                    False -> case processSelect (( filterSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) conditions)) aggList of
+                      Left err -> Left err 
+                      Right (newCols, newRows) -> Right $ createSelectDataFrame newCols newRows
+                    True -> Left "There are no results with the provided conditions or the condition is faulty"
+            True -> Left "Conditions are faulty"
+          False -> Left "The specified column doesn't exist" 
+        Nothing -> case selectQuery of 
           SelectColumns cols -> do
-            case doColumnsExist cols (filterSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) conditions) of 
-              True -> case areRowsEmpty (filterSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) conditions) of 
-                False -> Right  (uncurry createSelectDataFrame (getColumnsRows cols (filterSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) conditions)))
-                True -> Left "There are no results with the provided conditions or the condition is faulty"
-              False -> Left "Provided column name does not exist in database or you are mixing aggregate functions and columns"
+            (if doColumnsExist cols (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) then Right (uncurry createSelectDataFrame (getColumnsRows cols (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)))
+                          ) else Left "Provided column name does not exist in database or you are mixing aggregate functions and columns")
           SelectAggregate aggList -> do
-              case areRowsEmpty (filterSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) conditions) of 
-                False -> case processSelect (( filterSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) conditions)) aggList of
-                  Left err -> Left err 
-                  Right (newCols, newRows) -> Right $ createSelectDataFrame newCols newRows
-                True -> Left "There are no results with the provided conditions or the condition is faulty"
-        False -> Left "The specified column doesn't exist"
-      Nothing -> case selectQuery of
-        SelectColumns cols -> do
-          (if doColumnsExist cols (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) then Right (uncurry createSelectDataFrame (getColumnsRows cols (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)))
-                        ) else Left "Provided column name does not exist in database or you are mixing aggregate functions and columns")
-        SelectAggregate aggList -> do
-          case processSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) aggList of
-            Left err -> Left err
-            Right (newCols, newRows) -> Right $ createSelectDataFrame newCols newRows
-    False -> Left "The table is not valid"
+            case processSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) aggList of
+              Left err -> Left err
+              Right (newCols, newRows) -> Right $ createSelectDataFrame newCols newRows
+      False -> Left "The table is not valid"
+    False -> Left "Table not found in the database"
 
 
 executeStatement (SelectAll table selectWhere) =
-  case validateDataFrame (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) of 
-    True -> case lookup table InMemoryTables.database of 
-      Just _ -> case selectWhere of
-        Just conditions -> case doColumnsExist (whereConditionColumnList conditions) (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) of
-          True -> case areRowsEmpty (filterSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) conditions) of
-            True -> Left "There are no results with the provided conditions or the condition is faulty"
-            False -> Right (uncurry createSelectDataFrame (getColumnsRows (columnsToList (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database))) (filterSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) conditions)))
-          False -> Left "The specified column doesn't exist"
+  case doTableExist table of 
+    True -> case validateDataFrame (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) of 
+      True -> case selectWhere of
+        Just conditions -> case isFaultyConditions conditions of
+          False -> case doColumnsExist (whereConditionColumnList conditions) (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) of
+            True -> case areRowsEmpty (filterSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) conditions) of
+              True -> Left "There are no results with the provided conditions or the condition is faulty"
+              False -> Right (uncurry createSelectDataFrame (getColumnsRows (columnsToList (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database))) (filterSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) conditions)))
+            False -> Left "The specified column doesn't exist"
+          True -> Left "Conditions are faulty"
         Nothing -> Right (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database))
-      Nothing -> Left "Table not found in the database"
-    False -> Left "The table is not valid"
-
-
+      False -> Left "The table is not valid"
+    False -> Left "Table not found in the database"  
+  
 -----------------------------------------------------------------------------------------------------------
+isFaultyConditions :: [Condition] -> Bool
+isFaultyConditions [] = False
+isFaultyConditions (x:xs) 
+  | isFaultyCondition x == False = isFaultyConditions xs
+  | otherwise = True
 
+
+isFaultyCondition :: Condition -> Bool
+isFaultyCondition (Condition op1 operator op2) = 
+  case operator == IsEqualTo || operator == IsNotEqual of
+    True -> False
+    False -> case op1 of
+      ConstantOperand (IntegerValue i1) -> case op2 of
+        ConstantOperand (IntegerValue i2) -> False
+        _ -> True
+      _ -> True
+
+doTableExist :: TableName -> Bool
+doTableExist table = do
+  case lookup table InMemoryTables.database of
+    Just _ -> True
+    Nothing -> False
 
 validateDataFrame :: DataFrame -> Bool
 validateDataFrame dataFrame
@@ -341,31 +366,31 @@ findMax :: [Value] -> Either ErrorMessage [Value]
 findMax values =
   case filter (/= NullValue) values of
     [] -> Left "Column has no values."
-    vals -> Right [maxValue vals]
+    vals -> Right [findMaxValues vals]
 
-maxValue :: [Value] -> Value
-maxValue = foldl1 maxValue'
+findMaxValues :: [Value] -> Value
+findMaxValues = foldl1 findMaxValue
 
-maxValue' :: Value -> Value -> Value
-maxValue' (IntegerValue a) (IntegerValue b) = IntegerValue (max a b)
-maxValue' (StringValue a) (StringValue b) = StringValue (max a b)
-maxValue' (BoolValue a) (BoolValue b) = BoolValue (a || b)
-maxValue' _ _ = NullValue
+findMaxValue :: Value -> Value -> Value
+findMaxValue (IntegerValue a) (IntegerValue b) = IntegerValue (max a b)
+findMaxValue (StringValue a) (StringValue b) = StringValue (max a b)
+findMaxValue (BoolValue a) (BoolValue b) = BoolValue (a || b)
+findMaxValue _ _ = NullValue
 
 findSum :: [Value] -> Either ErrorMessage [Value]
 findSum values =
   case filter (/= NullValue) values of
     [] -> Left "Column has no values."
-    vals -> Right [sumValues vals]
+    vals -> Right [findSumValues vals]
 
-sumValues :: [Value] -> Value
-sumValues = foldl1 sumValues'
+findSumValues :: [Value] -> Value
+findSumValues = foldl1 findSumValue
 
-sumValues' :: Value -> Value -> Value
-sumValues' (IntegerValue a) (IntegerValue b) = IntegerValue (a + b)
-sumValues' (IntegerValue a) NullValue = IntegerValue a
-sumValues' NullValue (IntegerValue b) = IntegerValue b
-sumValues' _ _ = NullValue
+findSumValue :: Value -> Value -> Value
+findSumValue (IntegerValue a) (IntegerValue b) = IntegerValue (a + b)
+findSumValue (IntegerValue a) NullValue = IntegerValue a
+findSumValue NullValue (IntegerValue b) = IntegerValue b
+findSumValue _ _ = NullValue
 
 -----------------------------------------------------------------------------------------------------------
 
@@ -467,11 +492,8 @@ selectStatementParser = do
     pure $ Select specialSelect table selectWhere
 -----------------------------------------------------------------------------------------------------------
 
-data Trash = Trash String
-  deriving (Show, Eq)
-
-parseTrash :: Parser Trash 
-parseTrash = Parser $ \query -> 
+trashParser :: Parser Trash 
+trashParser = Parser $ \query -> 
   case head query == ',' of 
     True -> Left "Columns are not listed right"
     False -> case "from" `isPrefixOf` (dropWhiteSpaces query) of 
@@ -482,12 +504,12 @@ selectDataParser :: Parser SpecialSelect
 selectDataParser = tryParseAggregate <|> tryParseColumn
   where
     tryParseAggregate = do
-      aggregateList <- aggregateParser `sepBy` (char ',' *> optional whitespaceParser)
-      _ <- parseTrash
+      aggregateList <- seperate aggregateParser (optional whitespaceParser >> char ',' *> optional whitespaceParser)
+      _ <- trashParser
       return $ SelectAggregate aggregateList
     tryParseColumn = do
-      columnNames <- columnNameParser `sepBy` (char ',' *> optional whitespaceParser)
-      _ <- parseTrash
+      columnNames <- seperate columnNameParser (optional whitespaceParser >> char ',' *> optional whitespaceParser)
+      _ <- trashParser
       return $ SelectColumns columnNames
 
 aggregateParser :: Parser Aggregate
@@ -517,8 +539,8 @@ columnNameParser = Parser $ \query ->
     [] -> Left "Empty input"
     xs -> Right (xs, drop (length xs) query)
 
-sepBy :: Parser a -> Parser b -> Parser [a]
-sepBy p sep = do
+seperate :: Parser a -> Parser b -> Parser [a]
+seperate p sep = do
     x <- p
     xs <- many (sep *> p)
     return (x:xs)
@@ -551,7 +573,8 @@ whereConditionParser = do
   return $ Condition operand1 operator operand2
 
 operandParser :: Parser Operand
-operandParser = (ConstantOperand <$> constantParser) <|> (ColumnOperand <$> columnNameParser)
+operandParser = (ConstantOperand <$> constantParser)
+               <|> (ColumnOperand <$> columnNameParser)
 
 constantParser :: Parser Value
 constantParser = Parser $ \query ->
@@ -564,14 +587,13 @@ constantParser = Parser $ \query ->
           False -> case head operand == '\'' && last operand == '\'' of
             True -> Right (StringValue (init (tail operand)), restQuery)
             False -> case operand of
-                      "True" -> Right (BoolValue True, restQuery)
-                      "False" -> Right (BoolValue False, restQuery)
-                      "null" -> Right (NullValue, restQuery)
-                      _ ->  if isNumber operand
-                            then Right (IntegerValue $ stringToInt operand, restQuery)
-                            else Left "Operand is not valid"
+              "True" -> Right (BoolValue True, restQuery)
+              "False" -> Right (BoolValue False, restQuery)
+              "null" -> Right (NullValue, restQuery)
+              _ ->  if isNumber operand
+                    then Right (IntegerValue $ stringToInt operand, restQuery)
+                    else Left "Operand is not valid"
           True -> Left "The conditions are missing"
-
 
 stringToInt :: String -> Integer
 stringToInt = foldl (\acc x -> acc * 10 + toInteger (fromEnum x - fromEnum '0')) 0
@@ -585,22 +607,20 @@ operatorParser =
   <|> (queryStatementParser "<=" >> pure IsLessOrEqual)
   <|> (queryStatementParser ">=" >> pure IsGreaterOrEqual)
 
-
 -----------------------------------------------------------------------------------------------------
 
 selectAllParser :: Parser ParsedStatement
 selectAllParser = do
-    _ <- queryStatementParser "select"
-    _ <- whitespaceParser
-    _ <- queryStatementParser "*"
-    _ <- whitespaceParser
-    _ <- queryStatementParser "from"
-    _ <- whitespaceParser
-    table <- columnNameParser
-    selectWhere <- optional whereParser
-    _ <- optional whitespaceParser
-    pure $ SelectAll table selectWhere
-
+  _ <- queryStatementParser "select"
+  _ <- whitespaceParser
+  _ <- queryStatementParser "*"
+  _ <- whitespaceParser
+  _ <- queryStatementParser "from"
+  _ <- whitespaceParser
+  table <- columnNameParser
+  selectWhere <- optional whereParser
+  _ <- optional whitespaceParser
+  pure $ SelectAll table selectWhere
 
 stringToBool :: String -> Bool
 stringToBool "True" = True
@@ -627,14 +647,13 @@ isBool str
 
 columnNameParser' :: Parser ColumnName
 columnNameParser' = Parser $ \query ->
-  (if isSpacesBetweenWords (fst (splitStatementAtParentheses query)) then Right (dropWhiteSpaces (fst (splitStatementAtParentheses query)), snd (splitStatementAtParentheses query)) else Left "There is more than one column name in aggregation function")
+  (if areSpacesBetweenWords (fst (splitStatementAtParentheses query)) then Right (dropWhiteSpaces (fst (splitStatementAtParentheses query)), snd (splitStatementAtParentheses query)) else Left "There is more than one column name in aggregation function")
 
-
-isSpacesBetweenWords :: String -> Bool
-isSpacesBetweenWords [] = True
-isSpacesBetweenWords (x:xs)
+areSpacesBetweenWords :: String -> Bool
+areSpacesBetweenWords [] = True
+areSpacesBetweenWords (x:xs)
   | x == ' ' = dropWhiteSpacesUntilName xs == ""
-  | otherwise = isSpacesBetweenWords xs
+  | otherwise = areSpacesBetweenWords xs
 
 splitStatementAtParentheses :: String -> (String, String)
 splitStatementAtParentheses = go [] where
@@ -747,7 +766,6 @@ getColumnList (x:xs) (y:ys) = Column x y : getColumnList xs ys
 findColumnIndex :: ColumnName -> [Column] -> Int
 findColumnIndex columnName columns = columnIndex columnName columns 0
 
-
 columnIndex :: ColumnName -> [Column] -> Int -> Int
 columnIndex _ [] _ = -1
 columnIndex columnName ((Column name _):xs) index
@@ -759,7 +777,7 @@ toLowerString xs = concatMap (charToString . toLower) xs
 
 charToString :: Char -> String
 charToString c = [c]
-
+ 
 -----------------------------------------------------------------------------------------------------------
 
 createColumnsDataFrame :: [ColumnName] -> TableName -> DataFrame
@@ -775,12 +793,12 @@ createTablesDataFrame tableNames = DataFrame [Column "Tables" StringType] (map (
 
 stopParseAt :: Parser String
 stopParseAt  = do
-     _ <- optional whitespaceParser
-     _ <- queryStatementParser ";"
-     checkAfterQuery
-     where
-        checkAfterQuery :: Parser String
-        checkAfterQuery = Parser $ \query ->
-            case query of
-                [] -> Right ([], [])
-                s -> Left ("Characters found after ;" ++ s)
+  _ <- optional whitespaceParser
+  _ <- queryStatementParser ";"
+  checkAfterQuery
+  where
+    checkAfterQuery :: Parser String
+    checkAfterQuery = Parser $ \query ->
+        case query of
+            [] -> Right ([], [])
+            s -> Left ("Characters found after ;" ++ s)

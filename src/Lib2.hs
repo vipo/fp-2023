@@ -9,8 +9,10 @@ where
 
 import DataFrame (Column (..), ColumnType (..), Value (..), DataFrame (..), Row (..))
 import InMemoryTables (TableName, database)
-import Lib1 (findTableByName)
-import Data.Char (toLower)
+import Data.List (find, elemIndex, isPrefixOf)
+import Lib1 ()
+import Data.Char (toLower, isSpace)
+import Data.Maybe (fromJust)
 
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
@@ -31,33 +33,195 @@ data ParsedStatement
   | Min String TableName String
   | Sum String TableName String
 
+instance Ord Value where
+  compare (StringValue s1) (StringValue s2) = compare s1 s2
+  compare _ _ = EQ  -- Handle other Value constructors, e.g., handle Null or other types
+
 -- Parses user input into an entity representing a parsed
 -- statement
 parseStatement :: String -> Either ErrorMessage ParsedStatement
 parseStatement input
   | null input = Left "Empty input"
   | last input == ';' = parseStatement (init input)
+  | toLowerPrefix "select min(" input =
+    case words (map toLower input) of
+      ["select", columnName, "from", table] -> Right (Min columnName table "minimum")
+      _ -> Left "Invalid MIN statement"
+  | toLowerPrefix "select sum(" input =
+    case words (map toLower input) of
+      ["select", columnName, "from", table] -> Right (Sum columnName table "sum")
+      _ -> Left "Invalid SUM statement"
   | otherwise =
     case words (map toLower input) of
-      ["show", "tables"] -> Right ShowTables
+      ["show", "tables"] -> Right ShowTables 
       ["show", "table", table] -> Right (ShowTable table)
-      _ -> Left "Invalid SELECT statement"
+      ("select" : columns) ->
+        case break (== "from") columns of
+          (cols, "from" : tableName : "where" : rest) -> do
+            (conditions, _) <- parseWhereConditions rest
+            Right (Select cols tableName (Just conditions))
+          (cols, "from" : tableName : _) -> Right (Select cols tableName Nothing)
+          _ -> Left "Invalid SELECT statement"
+      _ -> Left "Not supported statement"
+
+toLowerPrefix :: String -> String -> Bool
+toLowerPrefix prefix str = isPrefixOf (map toLower prefix) (map toLower str)
+
+parseWhereConditions :: [String] -> Either ErrorMessage (Operator, [String])
+parseWhereConditions [] = Right (And [], [])
+parseWhereConditions (colName : op : value : rest) =
+  case op of
+    "=" -> Right (Equal colName (StringValue value), rest)
+    "<" -> Right (Less colName (StringValue value), rest)
+    ">" -> Right (Greater colName (StringValue value), rest)
+    "<=" -> Right (LessThanEqual colName (StringValue value), rest)
+    ">=" -> Right (GreaterThanEqual colName (StringValue value), rest)
+    _ -> Left "Invalid operator"
+parseWhereConditions (colName : rest) = Right (Equal colName (StringValue (head rest)), tail rest)
+
 
 -- Executes a parsed statemet. Produces a DataFrame. Uses
 -- InMemoryTables.databases a source of data.
+-- ExecuteStatement function
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
-executeStatement ShowTables = Right $ DataFrame [Column "table_name" StringType] (map (\(name, _) -> [StringValue name]) database)
-executeStatement (ShowTable tablename) =
-  case lookup (map toLower tablename) database of
-    Just a -> Right $ DataFrame [Column "column_names" StringType] (map (\col -> [StringValue (columnName col)]) (columns a))
+executeStatement ShowTables = Right showTables
+executeStatement (ShowTable tablename) = maybeTableToEither $ lookupTable tablename
+executeStatement (Select columnNames tableName maybeCondition) =
+    case lookup (map toLower tableName) database of
+        Just df -> do
+            let filteredRows = case maybeCondition of
+                    Just condition -> filter (\row -> evalCondition condition df row) (rows df)
+                    Nothing -> rows df
+            let selectedCols = if "*" `elem` columnNames
+                               then columns df
+                               else filter (\col -> columnName col `elem` columnNames) (columns df)
+            let selectedIndices = map (columnIndex df) selectedCols
+            let selectedRows = map (\row -> map (\i -> row !! i) selectedIndices) filteredRows
+            Right $ DataFrame selectedCols selectedRows
+        Nothing -> Left "Table not found"
+{- executeStatement (Min columnName tableName) = maybeTableToEither $ do
+  df <- lookupTable tableName
+  minValResult <- minVal columnName df
+  return $ DataFrame [Column columnName StringType] [[minValResult]] -}
+executeStatement (Min columnName tableName resultColumn) =
+  case lookup (map toLower tableName) database of
+    Just df -> do
+      let colIndex = columnIndex df (Column columnName StringType)
+      let nonNullRows = filter (\row -> case row !! colIndex of { NullValue -> False; _ -> True }) (rows df)
+      let maxVal = case nonNullRows of
+                     [] -> NullValue
+                     _ -> foldl1 (minValue colIndex (columnType (columns df !! colIndex))) (map (!! colIndex) nonNullRows)
+      Right $ DataFrame [Column resultColumn (columnType (columns df !! colIndex))] [[maxVal]]
     Nothing -> Left "Table not found"
+executeStatement (Sum columnName tableName resultColumn) =
+  case lookup (map toLower tableName) database of
+    Just df -> do
+      let colIndex = columnIndex df (Column columnName IntegerType)
+      let sumVal = calculateSum colIndex (rows df)
+      Right $ DataFrame [Column resultColumn IntegerType] [[sumVal]]
+    Nothing -> Left "Table not found"
+
+
+
 executeStatement _ = Left "Not implemented"
 
+-- Helper functions
+showTables :: DataFrame
+showTables = DataFrame [Column "table_name" StringType] (map (return . StringValue . fst) database)
+
+lookupTable :: String -> Maybe DataFrame
+lookupTable tableName = lookup (map toLower tableName) database
+
+maybeTableToEither :: Maybe DataFrame -> Either ErrorMessage DataFrame
+maybeTableToEither (Just df) = Right df
+maybeTableToEither Nothing = Left "Table not found"
+
+maybeFilterRows :: DataFrame -> Maybe Operator -> Maybe [Row]
+maybeFilterRows df maybeCondition = case maybeCondition of
+  Just condition -> Just $ filter (evalCondition condition df) (rows df)
+  Nothing -> Just $ rows df
+
+filterColumns :: [String] -> DataFrame -> [Column]
+filterColumns columnNames df = filter (\col -> columnName col `elem` columnNames) (columns df)
+
+selectRow :: DataFrame -> [Column] -> Row -> Row
+selectRow df selectedCols row = map (\col -> row !! columnIndex df col) selectedCols
+
+evalCondition :: Operator -> DataFrame -> Row -> Bool
+evalCondition (And conditions) df row = any (\cond -> evalCondition cond df row) conditions
+evalCondition (Equal colName val) df row = matchValue (getColumnValue colName df row) val
+evalCondition (Less colName val) df row = compareValues (<) colName val df row
+evalCondition (Greater colName val) df row = compareValues (>) colName val df row
+evalCondition (LessThanEqual colName val) df row = compareValues (<=) colName val df row
+evalCondition (GreaterThanEqual colName val) df row = compareValues (>=) colName val df row
+evalCondition _ _ _ = False
+
+minVal :: String -> DataFrame -> Maybe Value
+minVal colName (DataFrame cols rows) = do
+  colIndex <- findColumnIndex colName cols
+  let colValues = map (\row -> row !! colIndex) rows
+  case colValues of
+    [] -> Nothing  -- Empty column
+    _  -> Just (minimum colValues)
+
+minValue :: Int -> ColumnType -> Value -> Value -> Value
+minValue _ IntegerType (IntegerValue i1) (IntegerValue i2) = if i1 < i2 then IntegerValue i1 else IntegerValue i2
+minValue _ BoolType (BoolValue b1) (BoolValue b2) = if b1 < b2 then BoolValue b1 else BoolValue b2
+minValue _ StringType (StringValue s1) (StringValue s2) = if s1 < s2 then StringValue s1 else StringValue s2
+minValue _ _ val1 NullValue = val1
+minValue _ _ NullValue val2 = val2
+
+minValue colIndex colType _ _ = error $ "Column type mismatch for column at index " ++ show colIndex ++ ". Expected " ++ show colType
+
+columnType :: Column -> ColumnType
+columnType (Column _ colType) = colType
+
+-- Helper function to find the column index by name
+findColumnIndex :: String -> [Column] -> Maybe Int
+findColumnIndex colName cols = elemIndex colName (map columnName cols)
+
+matchValue :: Value -> Value -> Bool
+matchValue (StringValue s1) (StringValue s2) = map toLower s1 == map toLower s2
+matchValue _ _ = False
+
+trimValue :: Value -> Value
+trimValue (StringValue s) = StringValue (trimWhitespace s)
+trimValue v = v
+
+getColumnValue :: String -> DataFrame -> Row -> Value
+getColumnValue colName df row =
+  let colIndex = columnIndex df (Column (trimWhitespace (map toLower colName)) StringType)
+  in row !! colIndex
+
+trimWhitespace :: String -> String
+trimWhitespace = filter (not . isSpace)
+
+compareValues :: (String -> String -> Bool) -> String -> Value -> DataFrame -> Row -> Bool
+compareValues op colName val df row =
+  case (trimValue (getColumnValue colName df row), trimValue val) of
+    (StringValue s1, StringValue s2) -> op (map toLower s1) (map toLower s2)
+    _ -> False
+
+calculateSum :: Int -> [Row] -> Value
+calculateSum colIndex rows =
+  let totalSum = sum [case row !! colIndex of { IntegerValue i -> i; _ -> 0 } | row <- rows]
+      count = toInteger (length rows)
+  in if count > 0 then IntegerValue (totalSum) else NullValue
+
 columnName :: Column -> String
+columnName (Column name _)
+  | toLowerPrefix "min(" name = init $ tail $ dropWhile (/= '(') name
+  | toLowerPrefix "sum(" name = init $ tail $ dropWhile (/= '(') name
 columnName (Column name _) = name
 
-columnNames :: [Column] -> [String]
-columnNames = map (\(Column name _) -> name)
+columnIndex :: DataFrame -> Column -> Int
+columnIndex (DataFrame cols _) col = case find (\c -> columnName c == columnName col) cols of
+  Just foundCol -> fromJust $ elemIndex foundCol cols
+  -- if Nothing then return error "Column not found" and the name of the column that was not found
+  Nothing -> error $ "Column not found: " ++ columnName col
+
+rows :: DataFrame -> [Row]
+rows (DataFrame _ rs) = rs
 
 columns :: DataFrame -> [Column]
 columns (DataFrame cols _) = cols

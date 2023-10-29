@@ -1,3 +1,5 @@
+{-# LANGUAGE InstanceSigs #-}
+
 module Lessons.Lesson08 () where
 import GHC.RTS.Flags (MiscFlags(installSEHHandlers))
 

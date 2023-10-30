@@ -1,7 +1,9 @@
 import Data.Either
 import Data.Maybe ()
+import DataFrame (DataFrame (DataFrame), Column (Column), ColumnType (StringType, IntegerType), Value (StringValue, IntegerValue, NullValue), Row)
 import InMemoryTables qualified as D
 import Lib1
+import Lib2 (ParsedStatement (..), Operator(..), parseStatement, executeStatement)
 import Test.Hspec
 
 main :: IO ()
@@ -34,3 +36,39 @@ main = hspec $ do
   describe "Lib1.renderDataFrameAsTable" $ do
     it "renders a table" $ do
       Lib1.renderDataFrameAsTable 100 (snd D.tableEmployees) `shouldSatisfy` not . null
+  describe "Lib2.parseStatement" $ do
+    it "Parses SHOW TABLES statement" $ do
+      Lib2.parseStatement "SHOW TABLES" `shouldBe` Right ShowTables
+    it "Parses SHOW TABLE statement" $ do
+      Lib2.parseStatement "show table flags" `shouldBe` Right (ShowTable "flags")
+    it "Handles empty input" $ do
+      Lib2.parseStatement "" `shouldSatisfy` isLeft
+    it "Handles not supported statements" $ do
+      Lib2.parseStatement "wrong statement" `shouldSatisfy` isLeft
+    it "Handles wrong select min syntax" $ do
+      Lib2.parseStatement "select min( id) from employees" `shouldSatisfy` isLeft
+    it "Handles empty select input" $ do
+      Lib2.parseStatement "select" `shouldSatisfy` isLeft
+    it "Handles incorrect where syntax" $ do
+      Lib2.parseStatement "select * from employees where" `shouldSatisfy` isLeft
+  describe "Lib2.executeStatement" $ do
+    it "Returns the SHOW TABLES dataframe correctly" $ do
+      Lib2.executeStatement ShowTables `shouldBe` Right (DataFrame [Column "tables" StringType] [[StringValue "employees"], [StringValue "invalid1"], [StringValue "invalid2"], [StringValue "long_strings"], [StringValue "flags"]])
+    it "Returns a SHOW TABLE dataframe correctly" $ do
+      Lib2.executeStatement (ShowTable "employees") `shouldBe` Right (DataFrame [Column "columns" StringType] [[StringValue "id"], [StringValue "name"], [StringValue "surname"]])
+    it "Handles not existing tables with SHOW TABLE" $ do
+      Lib2.executeStatement (ShowTable "nothing") `shouldSatisfy` isLeft
+    it "Returns a Dataframe with SELECT * correctly" $ do
+      Lib2.executeStatement (Select ["*"] "employees" Nothing) `shouldBe` Right (snd D.tableEmployees)
+    it "Returns a DataFrame with a SELECT with a specific column correctly" $ do
+      Lib2.executeStatement (Select ["id"] "employees" Nothing) `shouldBe` Right (DataFrame [Column "id" IntegerType] [[IntegerValue 1], [IntegerValue 2], [IntegerValue 3], [IntegerValue 4]])
+    it "Handles a Dataframe with a SELECT statement with a nonexistent table" $ do
+      Lib2.executeStatement (Select ["*"] "nothing" Nothing) `shouldSatisfy` isLeft
+    it "Returns a DataFrame with SELECT with where statement" $ do
+      Lib2.executeStatement (Select ["*"] "employees" (Just (Operator "id" "=" (IntegerValue 1)))) `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "name" StringType, Column "surname" StringType] [[IntegerValue 1, StringValue "Vi", StringValue "Po"]])
+    it "Returns a DataFrame with SELECT with where case with string value" $ do
+      Lib2.executeStatement (Select ["*"] "employees" (Just (Operator "name" "=" (StringValue "Vi")))) `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "name" StringType, Column "surname" StringType] [[IntegerValue 1, StringValue "Vi", StringValue "Po"]])
+    it "Returns a DataFrame with SELECT min correctly" $ do
+      Lib2.executeStatement (Min "id" "employees" "minimum" Nothing) `shouldBe` Right (DataFrame [Column "minimum" IntegerType] [[IntegerValue 1]])
+    it "Returns a DataFrame with SELECT sum with where case correctly" $ do
+      Lib2.executeStatement (Sum "id" "employees" "sum" (Just (Operator "id" ">" (IntegerValue 2)))) `shouldBe` Right (DataFrame [Column "sum" IntegerType] [[IntegerValue 7]])

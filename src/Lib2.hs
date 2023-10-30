@@ -3,7 +3,8 @@
 module Lib2
   ( parseStatement,
     executeStatement,
-    ParsedStatement
+    Operator (..),
+    ParsedStatement (..)
   )
 where
 
@@ -18,7 +19,7 @@ import Text.Read (readMaybe)
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
 
-data Operator = Operator String String Value
+data Operator = Operator String String Value deriving (Show, Eq)
 
 -- Keep the type, modify constructors
 data ParsedStatement
@@ -28,6 +29,15 @@ data ParsedStatement
   | ParsedStatement
   | Min String TableName String (Maybe Operator)
   | Sum String TableName String (Maybe Operator)
+  deriving (Show, Eq)
+
+-- instance Show Operator where
+--   show (Operator str1 str2 val) = "Operator " ++ show str1 ++ " " ++ show str2 ++ " " ++ show val
+
+-- instance Eq Operator where
+--   (Operator str1 str2 val1) == (Operator str1' str2' val2) =
+--     str1 == str1' && str2 == str2' && val1 == val2
+
 
 instance Ord Value where
   compare (StringValue s1) (StringValue s2) = compare s1 s2

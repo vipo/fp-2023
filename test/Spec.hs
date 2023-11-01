@@ -41,6 +41,10 @@ main = hspec $ do
       Lib2.parseStatement "SHOW TABLES" `shouldBe` Right ShowTables
     it "Parses SHOW TABLE statement" $ do
       Lib2.parseStatement "show table flags" `shouldBe` Right (ShowTable "flags")
+    it "Parses SELECT id FROM statement" $ do
+      Lib2.parseStatement "SELECT id FROM employees" `shouldBe` Right (Select ["id"] "employees" Nothing)
+    it "Parses SelectT Id FroM Employees statement with case sensitive columns and table names and case insensitive SQL keywords" $ do
+      Lib2.parseStatement "SelecT Id FroM Employees" `shouldBe` Right (Select ["Id"] "Employees" Nothing)
     it "Handles empty input" $ do
       Lib2.parseStatement "" `shouldSatisfy` isLeft
     it "Handles not supported statements" $ do

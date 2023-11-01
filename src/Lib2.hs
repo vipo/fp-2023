@@ -10,7 +10,7 @@ module Lib2
   )
 where
 
-import Data.Char (isSpace, toLower)
+import Data.Char (isSpace, toLower, isDigit)
 import Data.List (elemIndex, find, isPrefixOf)
 import Data.Maybe (fromJust)
 import DataFrame (Column (..), ColumnType (..), DataFrame (..), Row (..), Value (..))
@@ -30,6 +30,7 @@ data ParsedStatement
   | ShowTable TableName
   | Select [String] TableName (Maybe [Operator])
   | ParsedStatement
+  | Where [Operator]
   deriving (Show, Eq)
 
 instance Ord Value where
@@ -43,7 +44,10 @@ parseStatement input
   | null input = Left "Empty input"
   | last input == ';' = parseStatement (init input)
   | otherwise =
-      case words (map toLower input) of
+    let
+      parseableList = replaceKeywordsToLower (splitStringIntoWords input)
+    in
+      case parseableList of
         ["show", "tables"] -> Right ShowTables
         ["show", "table", table] -> Right (ShowTable table)
         ("select" : columns) ->
@@ -56,6 +60,22 @@ parseStatement input
             (cols, "from" : tableName : _) -> Right (Select cols tableName Nothing)
             _ -> Left "Invalid SELECT statement"
         _ -> Left "Not supported statement"
+
+replaceKeywordsToLower :: [String] -> [String]
+replaceKeywordsToLower replaceInput = map replaceKeyword replaceInput
+  where
+    replaceKeyword :: String -> String
+    replaceKeyword keyword
+      | keyword == getKeywordCaseSensitive "show" replaceInput = "show"
+      | keyword == getKeywordCaseSensitive "table" replaceInput = "table"
+      | keyword == getKeywordCaseSensitive "tables" replaceInput = "tables"
+      | keyword == getKeywordCaseSensitive "select" replaceInput = "select"
+      | keyword == getKeywordCaseSensitive "from" replaceInput = "from"
+      | keyword == getKeywordCaseSensitive "where" replaceInput = "where"
+      | keyword == getKeywordCaseSensitive "and" replaceInput = "and"
+      | keyword == getKeywordCaseSensitive "or" replaceInput = "or"
+      | keyword == getKeywordCaseSensitive "not" replaceInput = "not"
+      | otherwise = keyword
 
 toLowerPrefix :: String -> String -> Bool
 toLowerPrefix prefix str = map toLower prefix `isPrefixOf` map toLower str
@@ -74,13 +94,13 @@ parseWhereConditions (colName : op : value : rest) =
         (operators, remaining) <- parseWhereConditions rest
         Right (Operator colName "=" (IntegerValue intValue) : operators, remaining)
       Nothing -> case value of
-        "true" -> do
+        "True" -> do
           (operators, remaining) <- parseWhereConditions rest
           Right (Operator colName "=" (BoolValue True) : operators, remaining)
-        "false" -> do
+        "False" -> do
           (operators, remaining) <- parseWhereConditions rest
           Right (Operator colName "=" (BoolValue False) : operators, remaining)
-        "null" -> do
+        "NULL" -> do
           (operators, remaining) <- parseWhereConditions rest
           Right (Operator colName "=" NullValue : operators, remaining)
         _ -> do
@@ -158,13 +178,13 @@ parseWhereConditions _ = Right ([], [])
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
 executeStatement ShowTables = Right showTables
 executeStatement (ShowTable tablename) =
-  case lookup (map toLower tablename) database of
+  case lookup tablename database of
     Just df -> Right $ DataFrame [Column "columns" StringType] (map (\col -> [StringValue (getColumnName col)]) (getColumns df))
     Nothing -> Left "Table not found"
 executeStatement (Select columnNames tableName maybeOperator)
   | null columnNames = Left "No columns provided"
   | null tableName = Left "No table provided"
-  | (("min(" `toLowerPrefix` head columnNames || "sum(" `toLowerPrefix` head columnNames) && null (tail columnNames)) || not ("min(" `toLowerPrefix` head columnNames || "sum(" `toLowerPrefix` head columnNames) = case lookup (map toLower tableName) database of
+  | (("min(" `toLowerPrefix` head columnNames || "sum(" `toLowerPrefix` head columnNames) && null (tail columnNames)) || not ("min(" `toLowerPrefix` head columnNames || "sum(" `toLowerPrefix` head columnNames) = case lookup tableName database of
       Just df -> do
         let pureColumnNames = map extractColumnNameFromFunction columnNames
         let missingColumns = filter (\colName -> not (any (\col -> getColumnName col == colName) (getColumns df))) pureColumnNames
@@ -259,7 +279,7 @@ findColumnIndex :: String -> [Column] -> Maybe Int
 findColumnIndex colName cols = elemIndex colName (map getColumnName cols)
 
 matchValue :: Value -> Value -> Bool
-matchValue (StringValue s1) (StringValue s2) = map toLower s1 == map toLower s2
+matchValue (StringValue s1) (StringValue s2) = s1 == s2
 matchValue (IntegerValue i1) (IntegerValue i2) = i1 == i2
 matchValue (BoolValue b1) (BoolValue b2) = b1 == b2
 matchValue NullValue NullValue = True
@@ -324,13 +344,15 @@ calculateSum colIndex rows =
       count = toInteger (length rows)
    in if count > 0 then IntegerValue totalSum else NullValue
 
-parseStatement :: String -> Either ErrorMessage ParsedStatement
-parseStatement input = do
-  let (selectPart, rest) = splitSQL input
-  return (ParsedStatement (map toLower selectPart) rest)
+splitStringIntoWords :: String -> [String]
+splitStringIntoWords = words
 
-splitSQL :: String -> (String, String)
-splitSQL input = case breakOnCaseInsensitive "SELECT" input of
+getKeywordCaseSensitive :: String -> [String] -> String
+getKeywordCaseSensitive keyword(x : xs) = if map toLower x == keyword then x else getKeywordCaseSensitive keyword xs
+getKeywordCaseSensitive _ [] = []
+
+splitSQL :: String -> String -> (String, String)
+splitSQL keyword input = case breakOnCaseInsensitive keyword input of
   Just (select, rest) -> (select, rest)
   Nothing -> ("", input)
 
@@ -338,7 +360,7 @@ breakOnCaseInsensitive :: String -> String -> Maybe (String, String)
 breakOnCaseInsensitive _ [] = Nothing
 breakOnCaseInsensitive toFind text@(t:ts) =
   if isPrefixCaseInsensitive toFind text
-    then Just ("", text)
+    then Just (text, "")
     else case breakOnCaseInsensitive toFind ts of
       Just (before, after) -> Just (t : before, after)
       Nothing -> Nothing
@@ -348,6 +370,3 @@ isPrefixCaseInsensitive [] _ = True
 isPrefixCaseInsensitive _ [] = False
 isPrefixCaseInsensitive (a:as) (b:bs) = toLower a == toLower b && isPrefixCaseInsensitive as bs
 
-executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
-executeStatement (ParsedStatement selectPart rest) = do
-  Left "Not implemented: executeStatement"

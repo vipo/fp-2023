@@ -45,8 +45,6 @@ main = hspec $ do
       Lib2.parseStatement "" `shouldSatisfy` isLeft
     it "Handles not supported statements" $ do
       Lib2.parseStatement "wrong statement" `shouldSatisfy` isLeft
-    it "Handles wrong select min syntax" $ do
-      Lib2.parseStatement "select min( id) from employees" `shouldSatisfy` isLeft
     it "Handles empty select input" $ do
       Lib2.parseStatement "select" `shouldSatisfy` isLeft
     it "Handles incorrect where syntax" $ do
@@ -62,13 +60,21 @@ main = hspec $ do
       Lib2.executeStatement (Select ["*"] "employees" Nothing) `shouldBe` Right (snd D.tableEmployees)
     it "Returns a DataFrame with a SELECT with a specific column correctly" $ do
       Lib2.executeStatement (Select ["id"] "employees" Nothing) `shouldBe` Right (DataFrame [Column "id" IntegerType] [[IntegerValue 1], [IntegerValue 2], [IntegerValue 3], [IntegerValue 4]])
-    it "Handles a Dataframe with a SELECT statement with a nonexistent table" $ do
+    it "Handles a SELECT statement with a nonexistent table" $ do
       Lib2.executeStatement (Select ["*"] "nothing" Nothing) `shouldSatisfy` isLeft
+    it "Handles a SELECT statement with a nonexistent column" $ do
+      Lib2.executeStatement (Select ["nothing"] "employees" Nothing) `shouldSatisfy` isLeft
     it "Returns a DataFrame with SELECT with where statement" $ do
-      Lib2.executeStatement (Select ["*"] "employees" (Just (Operator "id" "=" (IntegerValue 1)))) `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "name" StringType, Column "surname" StringType] [[IntegerValue 1, StringValue "Vi", StringValue "Po"]])
+      Lib2.executeStatement (Select ["*"] "employees" (Just [(Operator "id" "=" (IntegerValue 1))])) `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "name" StringType, Column "surname" StringType] [[IntegerValue 1, StringValue "Vi", StringValue "Po"]])
     it "Returns a DataFrame with SELECT with where case with string value" $ do
-      Lib2.executeStatement (Select ["*"] "employees" (Just (Operator "name" "=" (StringValue "Vi")))) `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "name" StringType, Column "surname" StringType] [[IntegerValue 1, StringValue "Vi", StringValue "Po"]])
+      Lib2.executeStatement (Select ["*"] "employees" (Just [(Operator "name" "=" (StringValue "Vi"))])) `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "name" StringType, Column "surname" StringType] [[IntegerValue 1, StringValue "Vi", StringValue "Po"]])
+    it "Handles wrong select min syntax" $ do
+      Lib2.executeStatement (Select ["min( id)"] "employees" Nothing) `shouldSatisfy` isLeft
     it "Returns a DataFrame with SELECT min correctly" $ do
-      Lib2.executeStatement (Min "id" "employees" "minimum" Nothing) `shouldBe` Right (DataFrame [Column "minimum" IntegerType] [[IntegerValue 1]])
+      Lib2.executeStatement (Select ["min(id)"] "employees" Nothing) `shouldBe` Right (DataFrame [Column "minimum" IntegerType] [[IntegerValue 1]])
     it "Returns a DataFrame with SELECT sum with where case correctly" $ do
-      Lib2.executeStatement (Sum "id" "employees" "sum" (Just (Operator "id" ">" (IntegerValue 2)))) `shouldBe` Right (DataFrame [Column "sum" IntegerType] [[IntegerValue 7]])
+      Lib2.executeStatement (Select ["sum(id)"] "employees" (Just [(Operator "id" ">" (IntegerValue 2))])) `shouldBe` Right (DataFrame [Column "sum" IntegerType] [[IntegerValue 7]])
+    it "Returns a DataFrame with SELECT with WHERE AND" $ do
+      Lib2.executeStatement (Select ["*"] "employees" (Just [(Operator "id" ">" (IntegerValue 1)), (Operator "name" "=" (StringValue "Ed"))])) `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "name" StringType, Column "surname" StringType] [[IntegerValue 2, StringValue "Ed", StringValue "Dl"]])
+    it "Returns a DataFrame with SELECT with WHERE with multiple AND statements" $ do
+      Lib2.executeStatement (Select ["*"] "employees" (Just [(Operator "id" ">" (IntegerValue 1)), (Operator "surname" "=" (StringValue "Dl")), (Operator "name" "=" (StringValue "Ed"))])) `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "name" StringType, Column "surname" StringType] [[IntegerValue 2, StringValue "Ed", StringValue "Dl"]])

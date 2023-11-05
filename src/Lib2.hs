@@ -10,7 +10,7 @@ module Lib2
   )
 where
 
-import Data.Char (isSpace, toLower, isDigit)
+import Data.Char (isDigit, isSpace, toLower)
 import Data.List (elemIndex, find, isPrefixOf)
 import Data.Maybe (fromJust)
 import DataFrame (Column (..), ColumnType (..), DataFrame (..), Row (..), Value (..))
@@ -44,22 +44,20 @@ parseStatement input
   | null input = Left "Empty input"
   | last input == ';' = parseStatement (init input)
   | otherwise =
-    let
-      parseableList = replaceKeywordsToLower (splitStringIntoWords input)
-    in
-      case parseableList of
-        ["show", "tables"] -> Right ShowTables
-        ["show", "table", table] -> Right (ShowTable table)
-        ("select" : columns) ->
-          case break (== "from") columns of
-            (cols, "from" : tableName : "where" : rest) -> do
-              (conditions, _) <- parseWhereConditions rest
-              if null conditions
-                then Left "Invalid WHERE statement"
-                else Right (Select cols tableName (Just conditions))
-            (cols, "from" : tableName : _) -> Right (Select cols tableName Nothing)
-            _ -> Left "Invalid SELECT statement"
-        _ -> Left "Not supported statement"
+      let parseableList = replaceKeywordsToLower (splitStringIntoWords input)
+       in case parseableList of
+            ["show", "tables"] -> Right ShowTables
+            ["show", "table", table] -> Right (ShowTable table)
+            ("select" : columns) ->
+              case break (== "from") columns of
+                (cols, "from" : tableName : "where" : rest) -> do
+                  (conditions, _) <- parseWhereConditions rest
+                  if null conditions
+                    then Left "Invalid WHERE statement"
+                    else Right (Select cols tableName (Just conditions))
+                (cols, "from" : tableName : _) -> Right (Select cols tableName Nothing)
+                _ -> Left "Invalid SELECT statement"
+            _ -> Left "Not supported statement"
 
 replaceKeywordsToLower :: [String] -> [String]
 replaceKeywordsToLower replaceInput = map replaceKeyword replaceInput
@@ -87,7 +85,119 @@ parseWhereConditions ("and" : rest)
   | otherwise = do
       (operators, remaining) <- parseWhereConditions rest
       Right (operators, remaining)
-parseWhereConditions (colName : op : value : rest) =
+parseWhereConditions (colName : op : value : rest)
+  | not (null rest) && head rest /= "and" = Left "Invalid WHERE statement"
+  | head value == '\"' = do
+      let (stringValue, remainingRest) = collectStringValue (value : rest)
+      if last stringValue == '\"'
+        then case op of
+          "=" -> do
+            (operators, remaining) <- parseWhereConditions remainingRest
+            Right (Operator colName "=" (StringValue (init (tail stringValue))) : operators, remaining)
+          "/=" -> do
+            (operators, remaining) <- parseWhereConditions remainingRest
+            Right (Operator colName "/=" (StringValue (init (tail stringValue))) : operators, remaining)
+          "<>" -> do
+            (operators, remaining) <- parseWhereConditions remainingRest
+            Right (Operator colName "<>" (StringValue (init (tail stringValue))) : operators, remaining)
+          "<" -> do
+            (operators, remaining) <- parseWhereConditions remainingRest
+            Right (Operator colName "<" (StringValue (init (tail stringValue))) : operators, remaining)
+          ">" -> do
+            (operators, remaining) <- parseWhereConditions remainingRest
+            Right (Operator colName ">" (StringValue (init (tail stringValue))) : operators, remaining)
+          "<=" -> do
+            (operators, remaining) <- parseWhereConditions remainingRest
+            Right (Operator colName "<=" (StringValue (init (tail stringValue))) : operators, remaining)
+          ">=" -> do
+            (operators, remaining) <- parseWhereConditions remainingRest
+            Right (Operator colName ">=" (StringValue (init (tail stringValue))) : operators, remaining)
+          _ -> Left "Invalid operator"
+        else Left "A string should end with \""
+  | otherwise =
+      case op of
+        "=" -> case readMaybe value of
+          Just intValue -> do
+            (operators, remaining) <- parseWhereConditions rest
+            Right (Operator colName "=" (IntegerValue intValue) : operators, remaining)
+          Nothing -> case value of
+            "True" -> do
+              (operators, remaining) <- parseWhereConditions rest
+              Right (Operator colName "=" (BoolValue True) : operators, remaining)
+            "False" -> do
+              (operators, remaining) <- parseWhereConditions rest
+              Right (Operator colName "=" (BoolValue False) : operators, remaining)
+            "NULL" -> do
+              (operators, remaining) <- parseWhereConditions rest
+              Right (Operator colName "=" NullValue : operators, remaining)
+            _ -> do
+              Left "Strings should be surrounded by double quotes"
+        "/=" -> case readMaybe value of
+          Just intValue -> do
+            (operators, remaining) <- parseWhereConditions rest
+            Right (Operator colName "/=" (IntegerValue intValue) : operators, remaining)
+          Nothing -> case value of
+            "true" -> do
+              (operators, remaining) <- parseWhereConditions rest
+              Right (Operator colName "/=" (BoolValue True) : operators, remaining)
+            "false" -> do
+              (operators, remaining) <- parseWhereConditions rest
+              Right (Operator colName "/=" (BoolValue False) : operators, remaining)
+            "null" -> do
+              (operators, remaining) <- parseWhereConditions rest
+              Right (Operator colName "/=" NullValue : operators, remaining)
+            _ -> do
+              Left "Strings should be surrounded by double quotes"
+        "<>" -> case readMaybe value of
+          Just intValue -> do
+            (operators, remaining) <- parseWhereConditions rest
+            Right (Operator colName "<>" (IntegerValue intValue) : operators, remaining)
+          Nothing -> case value of
+            "true" -> do
+              (operators, remaining) <- parseWhereConditions rest
+              Right (Operator colName "<>" (BoolValue True) : operators, remaining)
+            "false" -> do
+              (operators, remaining) <- parseWhereConditions rest
+              Right (Operator colName "<>" (BoolValue False) : operators, remaining)
+            "null" -> do
+              (operators, remaining) <- parseWhereConditions rest
+              Right (Operator colName "<>" NullValue : operators, remaining)
+            _ -> do
+              Left "Strings should be surrounded by double quotes"
+        "<" -> case readMaybe value of
+          Just intValue -> do
+            (operators, remaining) <- parseWhereConditions rest
+            Right (Operator colName "<" (IntegerValue intValue) : operators, remaining)
+          Nothing -> do
+            Left "Strings should be surrounded by double quotes"
+        ">" -> case readMaybe value of
+          Just intValue -> do
+            (operators, remaining) <- parseWhereConditions rest
+            Right (Operator colName ">" (IntegerValue intValue) : operators, remaining)
+          Nothing -> do
+            Left "Strings should be surrounded by double quotes"
+        "<=" -> case readMaybe value of
+          Just intValue -> do
+            (operators, remaining) <- parseWhereConditions rest
+            Right (Operator colName "<=" (IntegerValue intValue) : operators, remaining)
+          Nothing -> do
+            Left "Strings should be surrounded by double quotes"
+        ">=" -> case readMaybe value of
+          Just intValue -> do
+            (operators, remaining) <- parseWhereConditions rest
+            Right (Operator colName ">=" (IntegerValue intValue) : operators, remaining)
+          Nothing -> do
+            Left "Strings should be surrounded by double quotes"
+        _ -> Left "Invalid operator"
+parseWhereConditions _ = Right ([], [])
+
+collectStringValue :: [String] -> (String, [String])
+collectStringValue [] = ("", [])
+collectStringValue (x : xs)
+  | last x == '\"' = (x, xs)
+  | otherwise = let (value, remaining) = collectStringValue xs in (x ++ " " ++ value, remaining)
+
+{- parseWhereConditions (colName : op : value : rest) =
   case op of
     "=" -> case readMaybe value of
       Just intValue -> do
@@ -170,7 +280,7 @@ parseWhereConditions (colName : op : value : rest) =
         Right (Operator colName ">=" (StringValue value) : operators, remaining)
     _ -> Left "Invalid operator"
 -- parseWhereConditions (_ : _) = Left "Invalid WHERE statement"
-parseWhereConditions _ = Right ([], [])
+parseWhereConditions _ = Right ([], []) -}
 
 -- Executes a parsed statemet. Produces a DataFrame. Uses
 -- InMemoryTables.databases a source of data.
@@ -348,7 +458,7 @@ splitStringIntoWords :: String -> [String]
 splitStringIntoWords = words
 
 getKeywordCaseSensitive :: String -> [String] -> String
-getKeywordCaseSensitive keyword(x : xs) = if map toLower x == keyword then x else getKeywordCaseSensitive keyword xs
+getKeywordCaseSensitive keyword (x : xs) = if map toLower x == keyword then x else getKeywordCaseSensitive keyword xs
 getKeywordCaseSensitive _ [] = []
 
 splitSQL :: String -> String -> (String, String)
@@ -358,7 +468,7 @@ splitSQL keyword input = case breakOnCaseInsensitive keyword input of
 
 breakOnCaseInsensitive :: String -> String -> Maybe (String, String)
 breakOnCaseInsensitive _ [] = Nothing
-breakOnCaseInsensitive toFind text@(t:ts) =
+breakOnCaseInsensitive toFind text@(t : ts) =
   if isPrefixCaseInsensitive toFind text
     then Just (text, "")
     else case breakOnCaseInsensitive toFind ts of
@@ -368,5 +478,4 @@ breakOnCaseInsensitive toFind text@(t:ts) =
 isPrefixCaseInsensitive :: String -> String -> Bool
 isPrefixCaseInsensitive [] _ = True
 isPrefixCaseInsensitive _ [] = False
-isPrefixCaseInsensitive (a:as) (b:bs) = toLower a == toLower b && isPrefixCaseInsensitive as bs
-
+isPrefixCaseInsensitive (a : as) (b : bs) = toLower a == toLower b && isPrefixCaseInsensitive as bs

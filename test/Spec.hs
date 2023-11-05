@@ -1,6 +1,6 @@
 import Data.Either
 import Data.Maybe ()
-import DataFrame (DataFrame (DataFrame), Column (Column), ColumnType (StringType, IntegerType), Value (StringValue, IntegerValue, NullValue), Row)
+import DataFrame
 import InMemoryTables qualified as D
 import Lib1
 import Lib2 (ParsedStatement (..), Operator(..), parseStatement, executeStatement)
@@ -43,7 +43,7 @@ main = hspec $ do
       Lib2.parseStatement "show table flags" `shouldBe` Right (ShowTable "flags")
     it "Parses SELECT id FROM statement" $ do
       Lib2.parseStatement "SELECT id FROM employees" `shouldBe` Right (Select ["id"] "employees" Nothing)
-    it "Parses SelectT Id FroM Employees statement with case sensitive columns and table names and case insensitive SQL keywords" $ do
+    it "Parses SELECT statement with case-sensitive columns and table names, ignoring SQL keyword case" $ do
       Lib2.parseStatement "SelecT Id FroM Employees" `shouldBe` Right (Select ["Id"] "Employees" Nothing)
     it "Handles empty input" $ do
       Lib2.parseStatement "" `shouldSatisfy` isLeft
@@ -51,6 +51,14 @@ main = hspec $ do
       Lib2.parseStatement "wrong statement" `shouldSatisfy` isLeft
     it "Handles empty select input" $ do
       Lib2.parseStatement "select" `shouldSatisfy` isLeft
+    it "Works with WHERE statements" $ do
+      Lib2.parseStatement "select * from employees where id = 1" `shouldBe` Right (Select ["*"] "employees" (Just [Operator "id" "=" (IntegerValue 1)]))
+    it "WHERE statements work with strings" $ do
+      Lib2.parseStatement "select * from employees where name = \"Vi\"" `shouldBe` Right (Select ["*"] "employees" (Just [Operator "name" "=" (StringValue "Vi")]))
+    it "Works with WHERE statements with multiple ANDs" $ do
+      Lib2.parseStatement "select * from employees where id > 1 and name = \"Vi\" and surname = \"Po\"" `shouldBe` Right (Select ["*"] "employees" (Just [Operator "id" ">" (IntegerValue 1), Operator "name" "=" (StringValue "Vi"), Operator "surname" "=" (StringValue "Po")]))
+    it "Handles where statement with incompatible operator" $ do
+      Lib2.parseStatement "select * from employees where id is 1" `shouldSatisfy` isLeft
     it "Handles incorrect where syntax" $ do
       Lib2.parseStatement "select * from employees where" `shouldSatisfy` isLeft
   describe "Lib2.executeStatement" $ do
@@ -69,16 +77,16 @@ main = hspec $ do
     it "Handles a SELECT statement with a nonexistent column" $ do
       Lib2.executeStatement (Select ["nothing"] "employees" Nothing) `shouldSatisfy` isLeft
     it "Returns a DataFrame with SELECT with where statement" $ do
-      Lib2.executeStatement (Select ["*"] "employees" (Just [(Operator "id" "=" (IntegerValue 1))])) `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "name" StringType, Column "surname" StringType] [[IntegerValue 1, StringValue "Vi", StringValue "Po"]])
+      Lib2.executeStatement (Select ["*"] "employees" (Just [Operator "id" "=" (IntegerValue 1)])) `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "name" StringType, Column "surname" StringType] [[IntegerValue 1, StringValue "Vi", StringValue "Po"]])
     it "Returns a DataFrame with SELECT with where case with string value" $ do
-      Lib2.executeStatement (Select ["*"] "employees" (Just [(Operator "name" "=" (StringValue "Vi"))])) `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "name" StringType, Column "surname" StringType] [[IntegerValue 1, StringValue "Vi", StringValue "Po"]])
+      Lib2.executeStatement (Select ["*"] "employees" (Just [Operator "name" "=" (StringValue "Vi")])) `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "name" StringType, Column "surname" StringType] [[IntegerValue 1, StringValue "Vi", StringValue "Po"]])
     it "Handles wrong select min syntax" $ do
       Lib2.executeStatement (Select ["min( id)"] "employees" Nothing) `shouldSatisfy` isLeft
     it "Returns a DataFrame with SELECT min correctly" $ do
       Lib2.executeStatement (Select ["min(id)"] "employees" Nothing) `shouldBe` Right (DataFrame [Column "minimum" IntegerType] [[IntegerValue 1]])
     it "Returns a DataFrame with SELECT sum with where case correctly" $ do
-      Lib2.executeStatement (Select ["sum(id)"] "employees" (Just [(Operator "id" ">" (IntegerValue 2))])) `shouldBe` Right (DataFrame [Column "sum" IntegerType] [[IntegerValue 7]])
+      Lib2.executeStatement (Select ["sum(id)"] "employees" (Just [Operator "id" ">" (IntegerValue 2)])) `shouldBe` Right (DataFrame [Column "sum" IntegerType] [[IntegerValue 7]])
     it "Returns a DataFrame with SELECT with WHERE AND" $ do
-      Lib2.executeStatement (Select ["*"] "employees" (Just [(Operator "id" ">" (IntegerValue 1)), (Operator "name" "=" (StringValue "Ed"))])) `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "name" StringType, Column "surname" StringType] [[IntegerValue 2, StringValue "Ed", StringValue "Dl"]])
+      Lib2.executeStatement (Select ["*"] "employees" (Just [Operator "id" ">" (IntegerValue 1), Operator "name" "=" (StringValue "Ed")])) `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "name" StringType, Column "surname" StringType] [[IntegerValue 2, StringValue "Ed", StringValue "Dl"]])
     it "Returns a DataFrame with SELECT with WHERE with multiple AND statements" $ do
-      Lib2.executeStatement (Select ["*"] "employees" (Just [(Operator "id" ">" (IntegerValue 1)), (Operator "surname" "=" (StringValue "Dl")), (Operator "name" "=" (StringValue "Ed"))])) `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "name" StringType, Column "surname" StringType] [[IntegerValue 2, StringValue "Ed", StringValue "Dl"]])
+      Lib2.executeStatement (Select ["*"] "employees" (Just [Operator "id" ">" (IntegerValue 1), Operator "surname" "=" (StringValue "Dl"), Operator "name" "=" (StringValue "Ed")])) `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "name" StringType, Column "surname" StringType] [[IntegerValue 2, StringValue "Ed", StringValue "Dl"]])

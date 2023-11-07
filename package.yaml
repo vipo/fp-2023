@@ -41,6 +41,7 @@ library:
   dependencies:
   - free
   - time
+  - transformers
 
 executables:
   fp2023-select-all:

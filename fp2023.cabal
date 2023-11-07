@@ -36,6 +36,7 @@ library
       Lessons.Lesson07
       Lessons.Lesson08
       Lessons.Lesson09
+      Lessons.Lesson10
       Lib1
       Lib2
       Lib3
@@ -50,6 +51,7 @@ library
       base >=4.7 && <5
     , free
     , time
+    , transformers
   default-language: Haskell2010
 
 executable fp2023-manipulate

@@ -40,3 +40,11 @@ Please edit [Lib2](src/Lib2.hs) module (only!).
 Run your application: `stack run fp2023-select-more`
 
 Add more and run tests: `stack test`
+
+# Task 3
+
+Please edit [Lib3](src/Lib3.hs) and [Main](app3/Main.hs) modules. You can add libraries to [package.yaml](package.yaml).
+
+Run your application: `stack run fp2023-manipulate`
+
+Add more and run tests: `stack test`

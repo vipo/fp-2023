@@ -34,8 +34,12 @@ library
       Lessons.Lesson05
       Lessons.Lesson06
       Lessons.Lesson07
+      Lessons.Lesson08
+      Lessons.Lesson09
+      Lessons.Lesson10
       Lib1
       Lib2
+      Lib3
   other-modules:
       Paths_fp2023
   hs-source-dirs:
@@ -45,6 +49,28 @@ library
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
       base >=4.7 && <5
+    , free
+    , time
+    , transformers
+  default-language: Haskell2010
+
+executable fp2023-manipulate
+  main-is: Main.hs
+  other-modules:
+      Paths_fp2023
+  hs-source-dirs:
+      app3
+  default-extensions:
+      ImportQualifiedPost
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+    , extra
+    , fp2023
+    , free
+    , repline
+    , terminal-size
+    , time
   default-language: Haskell2010
 
 executable fp2023-select-all

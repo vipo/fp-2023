@@ -59,6 +59,8 @@ type AggregateList = [(AggregateFunction, ColumnName)]
 data Operand = ColumnOperand ColumnName | ConstantOperand Value
   deriving (Show, Eq)
 
+type TableArray =  [TableName]
+
 data Operator =
      IsEqualTo
     |IsNotEqual
@@ -84,7 +86,7 @@ data ParsedStatement =
    }
   |Select {
     selectQuery :: SpecialSelect,
-    table :: TableName,
+    tables :: TableArray,
     selectWhere :: Maybe WhereSelect
   }
   | ShowTables { }
@@ -185,37 +187,42 @@ parseStatement query = case runParser p query of
 executeStatement :: ParsedStatement -> Either ErrorMessage DataFrame
 executeStatement ShowTables = Right $ createTablesDataFrame findTableNames
 executeStatement (ShowTable table) = Right (createColumnsDataFrame (columnsToList (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database))) table)
-executeStatement (Select selectQuery table selectWhere) =
-  case doTableExist table of
-    True -> case validateDataFrame (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) of
-      True -> case selectWhere of
-        Just conditions -> case doColumnsExist (whereConditionColumnList conditions) (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) of
-          True -> case isFaultyConditions conditions of
-            False -> case selectQuery of
-              SelectColumns cols -> do
-                case doColumnsExist cols (filterSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) conditions) of 
-                  True -> case areRowsEmpty (filterSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) conditions) of 
-                    False -> Right  (uncurry createSelectDataFrame (getColumnsRows cols (filterSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) conditions)))
-                    True -> Left "There are no results with the provided conditions or the condition is faulty"
-                  False -> Left "Provided column name does not exist in database or you are mixing aggregate functions and columns"
-              SelectAggregate aggList -> do
-                  case areRowsEmpty (filterSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) conditions) of 
-                    False -> case processSelect (( filterSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) conditions)) aggList of
-                      Left err -> Left err 
-                      Right (newCols, newRows) -> Right $ createSelectDataFrame newCols newRows
-                    True -> Left "There are no results with the provided conditions or the condition is faulty"
-            True -> Left "Conditions are faulty"
-          False -> Left "The specified column doesn't exist" 
-        Nothing -> case selectQuery of 
-          SelectColumns cols -> do
-            (if doColumnsExist cols (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) then Right (uncurry createSelectDataFrame (getColumnsRows cols (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)))
-                          ) else Left "Provided column name does not exist in database or you are mixing aggregate functions and columns")
-          SelectAggregate aggList -> do
-            case processSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) aggList of
-              Left err -> Left err
-              Right (newCols, newRows) -> Right $ createSelectDataFrame newCols newRows
-      False -> Left "The table is not valid"
-    False -> Left "Table not found in the database"
+executeStatement (Select selectQuery tables selectWhere) =
+  case doTablesExist tables of
+    True -> Left "exists"
+    False -> Left "not exists" 
+
+-- executeStatement (Select selectQuery table selectWhere) =
+--   case doTableExist table of
+--     True -> case validateDataFrame (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) of
+--       True -> case selectWhere of
+--         Just conditions -> case doColumnsExist (whereConditionColumnList conditions) (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) of
+--           True -> case isFaultyConditions conditions of
+--             False -> case selectQuery of
+--               SelectColumns cols -> do
+--                 case doColumnsExist cols (filterSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) conditions) of 
+--                   True -> case areRowsEmpty (filterSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) conditions) of 
+--                     False -> Right  (uncurry createSelectDataFrame (getColumnsRows cols (filterSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) conditions)))
+--                     True -> Left "There are no results with the provided conditions or the condition is faulty"
+--                   False -> Left "Provided column name does not exist in database or you are mixing aggregate functions and columns"
+--               SelectAggregate aggList -> do
+--                   case areRowsEmpty (filterSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) conditions) of 
+--                     False -> case processSelect (( filterSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) conditions)) aggList of
+--                       Left err -> Left err 
+--                       Right (newCols, newRows) -> Right $ createSelectDataFrame newCols newRows
+--                     True -> Left "There are no results with the provided conditions or the condition is faulty"
+--             True -> Left "Conditions are faulty"
+--           False -> Left "The specified column doesn't exist" 
+--         Nothing -> case selectQuery of 
+--           SelectColumns cols -> do
+--             (if doColumnsExist cols (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) then Right (uncurry createSelectDataFrame (getColumnsRows cols (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)))
+--                           ) else Left "Provided column name does not exist in database or you are mixing aggregate functions and columns")
+--           SelectAggregate aggList -> do
+--             case processSelect (fromMaybe (DataFrame [] []) (lookup table InMemoryTables.database)) aggList of
+--               Left err -> Left err
+--               Right (newCols, newRows) -> Right $ createSelectDataFrame newCols newRows
+--       False -> Left "The table is not valid"
+--     False -> Left "Table not found in the database"
 
 
 executeStatement (SelectAll table selectWhere) =
@@ -250,6 +257,13 @@ isFaultyCondition (Condition op1 operator op2) =
         ConstantOperand (IntegerValue i2) -> False
         _ -> True
       _ -> True
+
+doTablesExist :: [TableName] -> Bool
+doTablesExist [] = True
+doTablesExist (x:xs) = do
+  case lookup x InMemoryTables.database of
+    Just _ -> doTablesExist xs
+    Nothing -> False
 
 doTableExist :: TableName -> Bool
 doTableExist table = do
@@ -485,11 +499,19 @@ selectStatementParser = do
     _ <- whitespaceParser
     _ <- queryStatementParser "from"
     _ <- whitespaceParser
-    table <- columnNameParser
+    tableArray <- selectTablesParser
+    _ <- optional whitespaceParser
     selectWhere <- optional whereParser
     _ <- optional whitespaceParser
 
-    pure $ Select specialSelect table selectWhere
+    pure $ Select specialSelect tableArray selectWhere
+
+selectTablesParser :: Parser  TableArray
+selectTablesParser = tryParseTable
+  where
+    tryParseTable = do
+      tableNames <- seperate columnNameParser (optional whitespaceParser >> char ',' *> optional whitespaceParser)
+      return $  tableNames  
 -----------------------------------------------------------------------------------------------------------
 
 trashParser :: Parser Trash 

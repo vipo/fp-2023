@@ -69,8 +69,8 @@ newtype State' s a = State' {
     runState' :: s -> (a, s)
 }
 
-instance Functor (State' s)  where
-  fmap :: (a -> b) -> State' s a -> State' s b
-  fmap f functor = State' $ \inp -> 
-    case runState' functor inp of
-        (a, l) -> (f a, l)
+-- instance Functor (State' s)  where
+--   fmap :: (a -> b) -> State' s a -> State' s b
+--   fmap f functor = State' $ \inp -> 
+--     case runState' functor inp of
+--         (a, l) -> (f a, l)

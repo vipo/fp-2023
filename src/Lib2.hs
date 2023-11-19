@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE InstanceSigs #-}
 
 module Lib2
   ( parseStatement,
@@ -15,7 +16,28 @@ module Lib2
     Operator (..),
     Condition (..),
     WhereSelect,
-    validateDataFrame
+    validateDataFrame,
+    tableNameParser,
+    Parser, 
+    whereParser,
+    selectDataParser,
+    runParser,
+    stopParseAt,
+    whitespaceParser,
+    queryStatementParser,
+    whereConditionParser,
+    Condition,
+    trashParser,
+    seperate,
+    columnNameParser,
+    char,
+    optional,
+    many,
+    empty,
+    some,
+    (<|>),
+    empty,
+    fail
   )
 where
 
@@ -37,6 +59,7 @@ import Data.Maybe (fromMaybe)
 import Data.Either
 import Text.ParserCombinators.ReadP (get)
 import Data.Foldable (find)
+import Control.Alternative.Free (Alt(alternatives))
 
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
@@ -104,18 +127,22 @@ instance Functor Parser where
     return (f x', s')
 
 instance Applicative Parser where
+  pure :: a -> Parser a
   pure x = Parser $ \s -> Right (x, s)
+  (<*>) :: Parser (a -> b) -> Parser a -> Parser b
   (Parser f) <*> (Parser x) = Parser $ \s -> do
     (f', s1) <- f s
     (x', s2) <- x s1
     return (f' x', s2)
 
 instance Monad Parser where
+  (>>=) :: Parser a -> (a -> Parser b) -> Parser b
   (Parser x) >>= f = Parser $ \s -> do
     (x', s') <- x s
     runParser (f x') s'
 
 instance MonadFail Parser where
+  fail :: String -> Parser a
   fail _ = Parser $ \_ -> Left "Monad failed"
 
 class (Applicative f) => Alternative f where
@@ -132,7 +159,9 @@ class (Applicative f) => Alternative f where
           some_v = (:) <$> v <*> many_v
 
 instance Alternative Parser where
+  empty :: Parser a
   empty = fail "empty"
+  (<|>) :: Parser a -> Parser a -> Parser a
   (Parser x) <|> (Parser y) = Parser $ \s ->
     case x s of
       Right x -> Right x
@@ -150,6 +179,7 @@ optional p = do
   <|> return Nothing
 
 instance Ord Value where
+    compare :: Value -> Value -> Ordering
     compare (IntegerValue a) (IntegerValue b) = compare a b
     compare (StringValue a) (StringValue b) = compare a b
     compare (BoolValue a) (BoolValue b) = compare a b

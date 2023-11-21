@@ -52,7 +52,7 @@ type Weird a = StateT String IO a
 weird :: Weird Int
 weird = do
     s1 <- get
-    s2 <- lift $ getLine
+    s2 <- lift getLine
     put "antaujinta"
     return (length s1 + length s2)
 

@@ -26,6 +26,7 @@ module Lib2
     whitespaceParser,
     queryStatementParser,
     whereConditionParser,
+    constantParser,
     Condition,
     trashParser,
     seperate,

@@ -18,7 +18,7 @@ import Data.Time ( UTCTime )
 import Data.Either (fromRight)
 import Text.ParserCombinators.ReadP (many1)
 
-
+ 
 type TableName = String
 type FileContent = String
 type ErrorMessage = String
@@ -126,7 +126,7 @@ insertParser = do
 
 insertedValuesParser :: Parser InsertedValues
 insertedValuesParser = do
-  values <- sepBy valueParser (char ',' >> whitespaceParser)
+  values <- sepBy constantParser (char ',' >> whitespaceParser)
   return values
 
 sepBy :: Parser a -> Parser b -> Parser [a]
@@ -134,10 +134,6 @@ sepBy p sep = do
     x <- p
     xs <- many (sep *> p)
     return (x:xs)
-    
-valueParser :: Parser Value
-valueParser = do
-  return (StringValue "Please implement me, i am not full, i need to return a value")
 
 deleteParser :: Parser ParsedStatementVol2
 deleteParser = do

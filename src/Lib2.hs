@@ -3,9 +3,7 @@
 {-# LANGUAGE InstanceSigs #-}
 
 module Lib2
-  ( parseStatement,
-    executeStatement,
-    ParsedStatement (..),
+  ( 
     ColumnName,
     Aggregate,
     AggregateFunction (..),
@@ -17,10 +15,12 @@ module Lib2
     Condition (..),
     WhereSelect,
     validateDataFrame,
+    parseStatement,
     tableNameParser,
     Parser, 
     whereParser,
     selectDataParser,
+    getColumnName,
     runParser,
     stopParseAt,
     whitespaceParser,
@@ -31,6 +31,7 @@ module Lib2
     trashParser,
     seperate,
     columnNameParser,
+    getType,
     char,
     optional,
     many,
@@ -38,7 +39,33 @@ module Lib2
     some,
     (<|>),
     empty,
-    fail
+    fail,
+    isFaultyConditions,
+    isFaultyCondition,
+    areRowsEmpty,
+    whereConditionColumnList,
+    whereConditionColumnName,
+    filterSelect,
+    filterCondition,
+    conditionResult,
+    getFilteredValue,
+    processSelect,
+    processSelectAggregates,
+    isIntegerType,
+    rowListToRow,
+    getColumnNames,
+    switchListToTuple,
+    getCols,
+    getCol,
+    getRows,
+    getRow,
+    findMax,
+    findMaxValues,
+    findMaxValue,
+    findSum,
+    findSumValues,
+    findSumValue,
+    executeStatement
   )
 where
 

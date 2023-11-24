@@ -17,6 +17,8 @@ import System.Console.Repline
     evalRepl,
   )
 import System.Console.Terminal.Size (Window, size, width)
+import Lib2 (tableNameParser)
+import System.Directory (doesFileExist)
 
 type Repl a = HaskelineT IO a
 
@@ -66,3 +68,8 @@ runExecuteIO (Free step) = do
         -- probably you will want to extend the interpreter
         runStep :: Lib3.ExecutionAlgebra a -> IO a
         runStep (Lib3.GetTime next) = getCurrentTime >>= return . next
+        runStep (Lib3.LoadFile tableName next) = do
+          let filePath = Lib3.toFilePath tableName
+          case doesFileExist filePath of
+            True -> return $ next $ Left "Parsinti ir deserializinti lentele"
+            False -> return $ next $ Left $ "Table '" ++ tableName ++ "' does not exist."

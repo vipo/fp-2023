@@ -2,3 +2,4 @@ resolver: lts-21.7
 system-ghc: true
 packages:
 - .
+

@@ -1,0 +1,12 @@
+{
+    "table":"flags",
+    "columns":[
+        {"name":"flag", "columnType":"StringType"},
+        {"name":"value", "columnType":"BoolType"}],
+    "rows":[
+        [{"valueType":"StringValue","value":"a"}, {"valueType":"BoolValue", "value":"True"}],
+        [{"valueType":"StringValue","value":"b"}, {"valueType":"BoolValue", "value":"True"}],
+        [{"valueType":"StringValue","value":"b"}, {"valueType":"NullValue", "value":"NULL"}],
+        [{"valueType":"StringValue","value":"b"}, {"valueType":"BoolValue", "value":"False"}]
+    ]
+}

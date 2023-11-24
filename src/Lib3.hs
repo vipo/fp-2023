@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# OPTIONS_GHC -Wno-incomplete-patterns #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use <$>" #-}
@@ -8,8 +9,7 @@ module Lib3
     parseStatement,
     Execution,
     ParsedStatement2,
-    ExecutionAlgebra(..),
-    toFilePath
+    ExecutionAlgebra(..)
   )
 where
 import Lib2
@@ -19,20 +19,49 @@ import DataFrame
 import Data.Time ( UTCTime )
 import Data.Either (fromRight)
 import Text.ParserCombinators.ReadP (many1)
-
+import GHC.Generics
+import Data.Aeson
+import GHC.Base (VecElem(DoubleElemRep))
  
 type TableName = String
-type FileContent = Either ErrorMessage (TableName, DataFrame)
+type FileContent = String
+type DeserializedContent = Either ErrorMessage (TableName, DataFrame)
 type ErrorMessage = String
 type TableArray =  [TableName]
 
 data ExecutionAlgebra next
   = LoadFile TableName (FileContent -> next)
   | GetTime (UTCTime -> next)
-  -- feel free to add more constructors here
+  -- feel free to add more constructors heres
   deriving Functor
 
 type Execution = Free ExecutionAlgebra
+
+data FromJSONColumn = FromJSONColumn {
+    deserializedName :: String,
+    deserializedDataType :: String
+} deriving (Show, Eq, Generic)
+
+data FromJSONTable = FromJSONTable {
+    deserializedtableName :: String,
+    deserializedColumns :: [FromJSONColumn],
+    deserializedRows :: [[Value]]
+} deriving (Show, Eq, Generic)
+
+instance FromJSON FromJSONColumn where
+  parseJSON (Object v) =
+    FromJSONColumn <$> v .: "name"
+                   <*> V .: "columnType"
+  parseJSON _ = mzero
+
+instance FromJSON FromJSONTable where
+  parseJSON (Object v) =
+    FromJSONTable <$> v .: "table"
+                  <*> FromJSONColumn .: "columns"
+                  <*> FromJSONRows .: "Rows"
+  parseJSON _ = mzero
+ 
+--instance FromJSON FromJSONTable
 
 -- Keep the type, modify constructors
 data ParsedStatement2 =
@@ -79,18 +108,18 @@ getTime = liftF $ GetTime id
 
 executeSql :: String -> Execution (Either ErrorMessage DataFrame)
 executeSql sql = case parseStatement2 sql of
-  Left _ -> case parseStatement2 sql of
-    Left _ -> return $ Left "oops"
-    Right (ShowTable table) -> do
-      content <- loadFile table
-      case content of
-        Left err -> return $ Left err
-    -- let ps = fromRight (ShowTables) (parseStatement sql)
-    -- let df = fromRight (DataFrame [] []) (executeStatement ps)
-    -- return $ Right df
+  Left err -> return $ Left err
+  Right (ShowTable table) -> do
+    content <- loadFile table
+    return $ Left content
+  --Mildai:
+  -- Right (SelectNow) -> do
+  --   da <- getTime
+  --   let df = todataframe da
+  --   return $ Right df
 
 -- createNowDataFrame :: UTCTime -> DataFrame
--- createNowDataFrame time = DataFrame [Column "Now" StringType] (time)
+-- createNowDataFrame time = DataFrame [Column "Now" StringType] [] <-Stringas
 
 -------------------------------some JSON shit------------------------------------
 
@@ -130,7 +159,7 @@ toJSONRows (x:xs)
   |otherwise = "[" ++ toJSONRow x ++ "]" 
 
 --------------------------------Files--------------------------------------------
-
+-- --C:\Users\Gita\Documents\GitHub\fp-2023\db\flags.json
 toFilePath :: TableName -> FilePath
 toFilePath tableName = "db/" ++ show(tableName) ++ ".json" --".txt"
 
@@ -195,7 +224,7 @@ insertParser = do
     _ <- whitespaceParser
     _ <- queryStatementParser "into"
     _ <- whitespaceParser
-    tableName <- tableNameParser
+    tableName <- columnNameParser
     _ <- optional whitespaceParser
     _ <- queryStatementParser "("
     selectUpdate <- optional selectDataParsers
@@ -224,7 +253,7 @@ deleteParser = do
     _ <- whitespaceParser
     _ <- queryStatementParser "from"
     _ <- whitespaceParser
-    tableName <- tableNameParser
+    tableName <- columnNameParser
     _ <- optional whitespaceParser
     _ <- queryStatementParser "where"
     conditions <- optional whereParser
@@ -234,7 +263,7 @@ updateParser :: Parser ParsedStatement2
 updateParser = do
     _ <- queryStatementParser "update"
     _ <- whitespaceParser
-    tableName <- tableNameParser
+    tableName <- columnNameParser
     _ <- whitespaceParser
     _ <- queryStatementParser "set"
     selectUpdated <- optional setParserWithComma
@@ -313,6 +342,6 @@ showTableParser = do
     _ <- whitespaceParser
     _ <- queryStatementParser "table"
     _ <- whitespaceParser
-    table <- tableNameParser
+    table <- columnNameParser
     _ <- optional whitespaceParser
     pure $ ShowTable table

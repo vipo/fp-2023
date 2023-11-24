@@ -19,6 +19,7 @@ import System.Console.Repline
 import System.Console.Terminal.Size (Window, size, width)
 import Lib2 (tableNameParser)
 import System.Directory (doesFileExist)
+import System.FilePath (pathSeparator)
 
 type Repl a = HaskelineT IO a
 
@@ -52,7 +53,7 @@ cmd c = do
     terminalWidth = maybe 80 width
     cmd' :: Integer -> IO (Either String String)
     cmd' s = do
-      df <- runExecuteIO $ Lib3.executeSql c 
+      df <- runExecuteIO $ Lib3.executeSql c
       return $ Lib1.renderDataFrameAsTable s <$> df
 
 main :: IO ()
@@ -69,7 +70,14 @@ runExecuteIO (Free step) = do
         runStep :: Lib3.ExecutionAlgebra a -> IO a
         runStep (Lib3.GetTime next) = getCurrentTime >>= return . next
         runStep (Lib3.LoadFile tableName next) = do
-          let filePath = Lib3.toFilePath tableName
-          case doesFileExist filePath of
-            True -> return $ next $ Left "Parsinti ir deserializinti lentele"
-            False -> return $ next $ Left $ "Table '" ++ tableName ++ "' does not exist."
+          let filePath = toFilePath tableName
+          exists <- doesFileExist filePath
+          if exists
+            then do
+              fileContent <- readFile filePath
+              return $ next $ fileContent
+            else return $ next $ "File '" ++ tableName ++ "' does not exist"
+
+--C:\Users\Gita\Documents\GitHub\fp-2023\db\flags.json
+toFilePath :: String -> FilePath
+toFilePath tableName = "db"++ [pathSeparator] ++ tableName ++ ".json" --".txt"

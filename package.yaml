@@ -42,6 +42,7 @@ library:
   - free
   - time
   - transformers
+  - aeson
 
 executables:
   fp2023-select-all:

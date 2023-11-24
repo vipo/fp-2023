@@ -16,7 +16,6 @@ module Lib2
     WhereSelect,
     validateDataFrame,
     parseStatement,
-    tableNameParser,
     Parser, 
     whereParser,
     selectDataParser,
@@ -65,7 +64,11 @@ module Lib2
     findSum,
     findSumValues,
     findSumValue,
-    executeStatement
+    executeStatement,
+    isValidTableName,
+    tableNameParser,
+    isOneWord,
+    dropWhiteSpaces
   )
 where
 

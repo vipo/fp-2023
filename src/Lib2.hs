@@ -15,7 +15,9 @@ module Lib2
     Operator (..),
     Condition (..),
     WhereSelect,
-    validateDataFrame
+    validateDataFrame,
+    getType,
+    getColumnName
   )
 where
 

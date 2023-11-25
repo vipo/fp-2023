@@ -3,6 +3,7 @@
 {-# OPTIONS_GHC -Wno-incomplete-patterns #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use <$>" #-}
+{-# OPTIONS_GHC -Wno-unused-do-bind #-}
 
 module Lib3
   ( executeSql,
@@ -16,16 +17,20 @@ import Lib2
 import Lib1 (renderDataFrameAsTable, findTableByName, parseSelectAllStatement, checkTupleMatch, zipColumnsAndValues, checkRowSizes)
 import Control.Monad.Free (Free (..), liftF)
 import DataFrame
-import Data.Time ( UTCTime )
+import Data.Time
 import Data.Either (fromRight)
 import Text.ParserCombinators.ReadP (many1)
 import GHC.Generics
-import Data.Aeson
+import Data.Aeson hiding (Value)
+import GHC.Generics
+import DataFrame
 import GHC.Base (VecElem(DoubleElemRep))
- 
+import Debug.Trace (trace, traceShow)
+import Data.Char (isDigit)
+
 type TableName = String
 type FileContent = String
-type DeserializedContent = Either ErrorMessage (TableName, DataFrame)
+type DeserializedContent = (TableName, DataFrame)
 type ErrorMessage = String
 type TableArray =  [TableName]
 
@@ -48,19 +53,21 @@ data FromJSONTable = FromJSONTable {
     deserializedRows :: [[Value]]
 } deriving (Show, Eq, Generic)
 
-instance FromJSON FromJSONColumn where
-  parseJSON (Object v) =
-    FromJSONColumn <$> v .: "name"
-                   <*> V .: "columnType"
-  parseJSON _ = mzero
 
-instance FromJSON FromJSONTable where
-  parseJSON (Object v) =
-    FromJSONTable <$> v .: "table"
-                  <*> FromJSONColumn .: "columns"
-                  <*> FromJSONRows .: "Rows"
-  parseJSON _ = mzero
- 
+
+-- instance FromJSON FromJSONColumn where
+--   parseJSON (Object v) =
+--     FromJSONColumn <$> v .: "name"
+--                    <*> V .: "columnType"
+--   parseJSON _ = mzero
+
+-- instance FromJSON FromJSONTable where
+--   parseJSON (Object v) =
+--     FromJSONTable <$> v .: "table"
+--                   <*> FromJSONColumn .: "columns"
+--                   <*> FromJSONRows .: "Rows"
+--   parseJSON _ = mzero
+
 --instance FromJSON FromJSONTable
 
 -- Keep the type, modify constructors
@@ -112,25 +119,53 @@ executeSql sql = case parseStatement2 sql of
   Right (ShowTable table) -> do
     content <- loadFile table
     return $ Left content
-  --Mildai:
-  -- Right (SelectNow) -> do
-  --   da <- getTime
-  --   let df = todataframe da
-  --   return $ Right df
+  Right (Insert table columns values) -> do
+    content <- loadFile table
+    case content of
+            Left err1 -> return $ Left err1
+            Right contains -> do
+              let df = insertExecution contains columns values
+              return $ Right df
+  Right (Update table selectUpdate selectWhere) -> do
+    return $ Left "wowoo"
+  Right (Delete table conditions) -> do
+    return $ Left "wowoo"
+  Right SelectNow -> do
+    da <- getTime
+    let df = createNowDataFrame (uTCToString da)
+    return $ Right df
 
--- createNowDataFrame :: UTCTime -> DataFrame
--- createNowDataFrame time = DataFrame [Column "Now" StringType] [] <-Stringas
+insertExecution :: DeserializedContent -> Maybe SelectedColumns -> InsertedValues -> Either ErrorMessage DataFrame
+insertExecution contains columns values = --DataFrame [Column "Now" StringType] [[IntegerValue 1, StringValue "babe"]]
+  case columns of 
+    Just columnsFound -> insertColumnsProvided contains columnsFound values
+    Nothing -> insertToAll contains values
 
+
+insertColumnsProvided :: DeserializedContent -> SelectedColumns -> InsertedValues -> Either ErrorMessage DataFrame
+insertColumnsProvided content columns values = DataFrame [Column "Now" StringType] [[IntegerValue 1, StringValue "babe"]]
+
+insertToAll :: DeserializedContent -> InsertedValues -> Either ErrorMessage DataFrame
+insertToAll content values = DataFrame [Column "Now" StringType] [[IntegerValue 1, StringValue "babe"]]
+
+--deserializeTable :: FileContent -> Either ErrorMessage DeserializedContent
+
+
+createNowDataFrame :: [Row] -> DataFrame
+createNowDataFrame time = DataFrame [Column "Now" StringType] time
+
+uTCToString :: UTCTime -> [Row]
+uTCToString utcTime = [[StringValue (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" utcTime)]]
 -------------------------------some JSON shit------------------------------------
 
 toJSONtable :: (TableName, (DataFrame)) -> String
-toJSONtable table = "{\"Table\":\"" ++ show(fst(table)) ++ "\",\"Columns\":[" ++ show(toJSONColumns(toColumnList(snd(table)))) ++ "],\"Rows\":[" ++ show(toJSONRows(toRowList(snd(table)))) ++"]}"
+toJSONtable table = "{\"Table\":\"" ++ show (fst (table)) ++ "\",\"Columns\":[" ++ show (toJSONColumns (toColumnList (snd (table)))) ++ "],\"Rows\":[" ++ show (toJSONRows (toRowList (snd (table)))) ++"]}"
 
 toJSONColumn :: Column -> String
-toJSONColumn column = "{\"Name\":\"" ++ show(getColumnName(column)) ++ ",\"ColumnType\":\"" ++ show(getType(column)) ++ "\"}"
+toJSONColumn column = "{\"Name\":\"" ++ show (getColumnName (column)) ++ ",\"ColumnType\":\"" ++ show (getType (column)) ++ "\"}"
 
 toJSONRowValue :: Value -> String
-toJSONRowValue value = "{\"Value\":\"" ++ show(value) ++ "\"}"
+toJSONRowValue value = "{\"Value\":\"" ++ show (value) ++ "\"}"
 
 ---------------------------------------some get stuff----------------------------
 
@@ -149,22 +184,22 @@ toJSONColumns (x:xs)
 
 toJSONRow :: Row -> String
 --toJSONRow [] = []
-toJSONRow (x:xs) 
+toJSONRow (x:xs)
   |xs /= [] = toJSONRowValue x ++ "," ++ toJSONRow xs
   |otherwise = toJSONRowValue x
 
 toJSONRows :: [Row] -> String
 toJSONRows (x:xs)
   |xs /= [] = "[" ++ toJSONRow x ++ "]," ++ toJSONRows xs
-  |otherwise = "[" ++ toJSONRow x ++ "]" 
+  |otherwise = "[" ++ toJSONRow x ++ "]"
 
 --------------------------------Files--------------------------------------------
 -- --C:\Users\Gita\Documents\GitHub\fp-2023\db\flags.json
 toFilePath :: TableName -> FilePath
-toFilePath tableName = "db/" ++ show(tableName) ++ ".json" --".txt"
+toFilePath tableName = "db/" ++ show (tableName) ++ ".json" --".txt"
 
-writeTableToFile :: (TableName, DataFrame) -> IO () 
-writeTableToFile table = writeFile (toFilePath(fst(table))) (toJSONtable(table))
+writeTableToFile :: (TableName, DataFrame) -> IO ()
+writeTableToFile table = writeFile (toFilePath (fst (table))) (toJSONtable (table))
 
 ---------------------------------------------------------------------------------
 
@@ -180,10 +215,10 @@ parseStatement2 query = case runParser p query of
           Right _ -> Right query
         ShowTables -> case runParser stopParseAt rest of
           Left err2 -> Left err2
-          Right _ -> Right query  
+          Right _ -> Right query
         SelectAll _ _ -> case runParser stopParseAt rest of
           Left err2 -> Left err2
-          Right _ -> Right query  
+          Right _ -> Right query
         Insert _ _ _ -> case runParser stopParseAt rest of
           Left err2 -> Left err2
           Right _ -> Right query
@@ -229,6 +264,7 @@ insertParser = do
     _ <- queryStatementParser "("
     selectUpdate <- optional selectDataParsers
     _ <- queryStatementParser ")"
+    _ <- optional whitespaceParser
     _ <- queryStatementParser "values"
     _ <- optional whitespaceParser
     _ <- queryStatementParser "("
@@ -236,16 +272,42 @@ insertParser = do
     _ <- queryStatementParser ")"
     pure $ Insert tableName selectUpdate values
 
+
 insertedValuesParser :: Parser InsertedValues
 insertedValuesParser = do
-  values <- sepBy constantParser (char ',' >> whitespaceParser)
-  return values
+  values <- seperate valueParser (queryStatementParser "," >> whitespaceParser)
+  return $ trace ("Parsed values: " ++ show values) values
 
-sepBy :: Parser a -> Parser b -> Parser [a]
-sepBy p sep = do
-    x <- p
-    xs <- many (sep *> p)
-    return (x:xs)
+valueParser :: Parser Value
+valueParser = parseNullValue <|> parseBoolValue <|> parseStringValue <|> parseNumericValue
+
+parseNullValue :: Parser Value
+parseNullValue = queryStatementParser "null" >> return NullValue
+
+parseBoolValue :: Parser Value
+parseBoolValue =
+  (queryStatementParser "true" >> return (BoolValue True))
+  <|> (queryStatementParser "false" >> return (BoolValue False))
+
+parseStringValue :: Parser Value
+parseStringValue = do
+  strValue <- parseStringWithQuotes
+  return (StringValue strValue)
+
+parseStringWithQuotes :: Parser String
+parseStringWithQuotes = do
+  _ <- queryStatementParser "'"
+  str <- some (parseSatisfy (/= '\''))
+  _ <- queryStatementParser "'"
+  return str
+
+parseNumericValue :: Parser Value
+parseNumericValue = IntegerValue <$> parseInt
+
+parseInt :: Parser Integer
+parseInt = do
+  digits <- some (parseSatisfy isDigit)
+  return (read digits)
 
 deleteParser :: Parser ParsedStatement2
 deleteParser = do
@@ -254,8 +316,6 @@ deleteParser = do
     _ <- queryStatementParser "from"
     _ <- whitespaceParser
     tableName <- columnNameParser
-    _ <- optional whitespaceParser
-    _ <- queryStatementParser "where"
     conditions <- optional whereParser
     pure $ Delete tableName conditions
 
@@ -267,7 +327,6 @@ updateParser = do
     _ <- whitespaceParser
     _ <- queryStatementParser "set"
     selectUpdated <- optional setParserWithComma
-    _ <- whitespaceParser
     selectedWhere <- optional whereParser
     pure $ Update tableName selectUpdated selectedWhere
 
@@ -288,7 +347,6 @@ selectDataParsers = tryParseColumn
   where
     tryParseColumn = do
       columnNames <- seperate columnNameParser (optional whitespaceParser >> char ',' *> optional whitespaceParser)
-      _ <- trashParser
       return $ ColumnsSelected columnNames
 
 ----Lib2 stuff----

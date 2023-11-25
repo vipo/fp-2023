@@ -1,6 +1,8 @@
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE InstanceSigs #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use lambda-case" #-}
 
 module Lib2
   ( 
@@ -68,7 +70,8 @@ module Lib2
     isValidTableName,
     tableNameParser,
     isOneWord,
-    dropWhiteSpaces
+    dropWhiteSpaces,
+    parseSatisfy
   )
 where
 
@@ -91,6 +94,7 @@ import Data.Either
 import Text.ParserCombinators.ReadP (get)
 import Data.Foldable (find)
 import Control.Alternative.Free (Alt(alternatives))
+import Debug.Trace (trace)
 
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
@@ -219,6 +223,10 @@ instance Ord Value where
     compare _ NullValue = GT
 
 -----------------------------------------------------------------------------------------------------------
+parseSatisfy :: (Char -> Bool) -> Parser Char
+parseSatisfy predicate = Parser $ \input -> case input of
+  [] -> Left "Empty input"
+  (x:xs) -> if predicate x then Right (x, xs) else Left ("Unexpected character: " ++ [x])
 
 parseStatement :: String -> Either ErrorMessage ParsedStatement
 parseStatement query = case runParser p query of

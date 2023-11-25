@@ -1,0 +1,11 @@
+{
+    "table":"employees",
+    "columns":[
+        {"name":"id", "columnType":"IntegerType"},
+        {"name":"name", "columnType":"StringType"},
+        {"name":"surname", "columnType":"StringType"}],
+    "rows":[
+        [{"valueType":"IntegerValue","value":1}, {"valueType":"StringValue", "value":"Vi"}, {"valueType":"StringValue", "value":"Po"}],
+        [{"valueType":"IntegerValue","value":1}, {"valueType":"StringValue", "value":"Ed"}, {"valueType":"StringValue", "value":"Dl"}]
+    ]
+}

@@ -16,20 +16,20 @@ module Lib2
     WhereSelect,
     validateDataFrame,
     parseStatement,
-    Parser, 
-    whereParser,
-    selectDataParser,
+    Parser,
     getColumnName,
+    aggregateParser,
     runParser,
     stopParseAt,
     whitespaceParser,
     queryStatementParser,
-    whereConditionParser,
+    operatorParser,
     constantParser,
     Condition,
     trashParser,
     seperate,
     columnNameParser,
+    tableNameParser,
     getType,
     char,
     optional,
@@ -41,6 +41,7 @@ module Lib2
     fail,
     isFaultyConditions,
     isFaultyCondition,
+    doColumnsExist,
     areRowsEmpty,
     whereConditionColumnList,
     whereConditionColumnName,
@@ -66,9 +67,11 @@ module Lib2
     findSumValue,
     executeStatement,
     isValidTableName,
-    tableNameParser,
     isOneWord,
-    dropWhiteSpaces
+    dropWhiteSpaces,
+    columnsToList,
+    createColumnsDataFrame,
+    createTablesDataFrame
   )
 where
 
@@ -105,12 +108,12 @@ data AggregateFunction = Sum | Max
 data And = And
   deriving (Show, Eq)
 
-data SpecialSelect = SelectAggregate AggregateList | SelectColumns [ColumnName]
+data SpecialSelect = SelectAggregate AggregateList | SelectColumns [ColumnName] | SelectColumnsTables [(TableName, ColumnName)]
   deriving (Show, Eq)
 
 type AggregateList = [(AggregateFunction, ColumnName)]
 
-data Operand = ColumnOperand ColumnName | ConstantOperand Value
+data Operand = ColumnOperand ColumnName | ConstantOperand Value | ColumnTableOperand (TableName, ColumnName)
   deriving (Show, Eq)
 
 data Operator =

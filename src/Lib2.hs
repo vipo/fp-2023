@@ -346,6 +346,7 @@ whereConditionColumnName (Condition op1 _ op2) =
     ConstantOperand _ -> case op2 of
       ColumnOperand name -> [name]
       ConstantOperand _ -> []
+    ColumnTableOperand _ -> []
 
 filterSelect :: DataFrame -> [Condition] -> DataFrame
 filterSelect df [] = df

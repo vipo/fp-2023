@@ -91,7 +91,7 @@ executeSql :: String -> Execution (Either ErrorMessage DataFrame)
 executeSql sql = case parseStatement2 sql of
   Right (SelectAll tables selectWhere) -> do
     let df = [DataFrame [Column "flag" StringType] [[StringValue "a"], [StringValue "b"]], DataFrame [Column "value" BoolType][[BoolValue True],[BoolValue True],[BoolValue False]]]
-    case executeSelectAll df selectWhere of
+    case executeSelectAll tables df selectWhere of
       Right dfs -> return $ Right dfs
       Left err -> return $ Left err
   Left err -> return $ Left err
@@ -213,7 +213,7 @@ executeSelectAll tables selectedDfs whereSelect = case areTablesValid selectedDf
     True -> case whereSelect of
       Just conditions -> case isFaultyConditions conditions of
         False -> case doColumnsExistDFs (whereConditionColumnList conditions) selectedDfs of
-          True -> case doColumnsExistProvidedDfs (whereConditionColumnList2 conditions) tables of
+          True -> case doColumnsExistProvidedDfs tables selectedDfs (whereConditionColumnList2 conditions) of
             True -> Left "do stuff"
             False -> Left "Some of provided columns do not exist in provided tables or expected table where not provided after 'from'"
           False -> Left "Some of provided columns do not exist in provided tables"
@@ -260,16 +260,20 @@ whereConditionColumnName2 (Condition op1 _ op2) =
     ConstantOperand _ -> case op2 of
       ColumnTableOperand name -> [name]
       ConstantOperand _ -> []
----iki cia:
-doColumnsExistProvidedDfs :: TableArray -> [DataFrame] -> [(TableName, ColumnName)] -> Either ErrorMessage Bool
-doColumnsExistProvidedDfs ta df (x:xs)
-  | 
+    ColumnOperand _ -> []
+
+doColumnsExistProvidedDfs :: TableArray -> [DataFrame] -> [(TableName, ColumnName)] -> Bool
+doColumnsExistProvidedDfs _ _ [] = True
+doColumnsExistProvidedDfs ta dfs ((table, column):xs)
+  | checkIfConditionsMatchesWithData ta dfs (table, column) = doColumnsExistProvidedDfs ta dfs xs
+  | otherwise = False
 
 checkIfConditionsMatchesWithData :: TableArray -> [DataFrame] -> (TableName, ColumnName) -> Bool
-checkIfConditionsMatchesWithData [] [] _ = False
-checkIfConditionsMatchesWithData (x:xs) (y:ys) (table, column)
-  | x == table && doColumnsExist [column] y == true = True
-  | otherwise = checkIfConditionsMatchesWithData xs ys (table, column)
+checkIfConditionsMatchesWithData [] _ _ = False
+checkIfConditionsMatchesWithData _ [] _ = False
+checkIfConditionsMatchesWithData (table:tables) (df:dataFrames) (targetTable, targetColumn)
+  | table == targetTable && doColumnsExist [targetColumn] df = True
+  | otherwise = checkIfConditionsMatchesWithData tables dataFrames (targetTable, targetColumn)
 --------------------------------------------------------------------------------
 
 selectNowParser :: Parser ParsedStatement2

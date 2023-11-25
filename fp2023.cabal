@@ -37,7 +37,6 @@ library
       Lessons.Lesson08
       Lessons.Lesson09
       Lessons.Lesson10
-      Lessons.Lesson11
       Lib1
       Lib2
       Lib3
@@ -51,6 +50,7 @@ library
   build-depends:
       aeson
     , base >=4.7 && <5
+    , bytestring
     , free
     , time
     , transformers
@@ -67,6 +67,7 @@ executable fp2023-manipulate
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
+    , bytestring
     , directory
     , extra
     , filepath

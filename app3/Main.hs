@@ -18,7 +18,7 @@ import System.Console.Repline
   )
 import System.Console.Terminal.Size (Window, size, width)
 import Lib2 (tableNameParser)
-import System.Directory (doesFileExist)
+import System.Directory (doesFileExist, getDirectoryContents)
 import System.FilePath (pathSeparator)
 
 type Repl a = HaskelineT IO a
@@ -69,15 +69,17 @@ runExecuteIO (Free step) = do
         -- probably you will want to extend the interpreter
         runStep :: Lib3.ExecutionAlgebra a -> IO a
         runStep (Lib3.GetTime next) = getCurrentTime >>= return . next
+        runStep (Lib3.GetTables next) = do
+          list <- getDirectoryContents "db"
+          return $ next $ map (\str -> take ((length str) - 5) str)  $ init $ init list
         runStep (Lib3.LoadFile tableName next) = do
           let filePath = toFilePath tableName
           exists <- doesFileExist filePath
           if exists
             then do
-              content <- readFile filePath
-              return $ next content
-            else return $ next $ "File " ++ tableName ++ ".json does not exist"
+              fileContent <- readFile filePath
+              return $ next $ Lib3.deserializedContent fileContent
+            else return $ next $ Left $ "File '" ++ tableName ++ "' does not exist"
 
---C:\Users\Gita\Documents\GitHub\fp-2023\db\flags.json
 toFilePath :: String -> FilePath
 toFilePath tableName = "db"++ [pathSeparator] ++ tableName ++ ".json" --".txt"

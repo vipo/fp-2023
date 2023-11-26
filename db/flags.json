@@ -1,12 +1,12 @@
 {
-    "table":"flags",
-    "columns":[
-        {"name":"flag", "columnType":"StringType"},
-        {"name":"value", "columnType":"BoolType"}],
-    "rows":[
-        [{"valueType":"StringValue","value":"a"}, {"valueType":"BoolValue", "value":"True"}],
-        [{"valueType":"StringValue","value":"b"}, {"valueType":"BoolValue", "value":"True"}],
-        [{"valueType":"StringValue","value":"b"}, {"valueType":"NullValue", "value":"NULL"}],
-        [{"valueType":"StringValue","value":"b"}, {"valueType":"BoolValue", "value":"False"}]
+    "Table":"flags",
+    "Columns":[
+        {"Name":"flag", "ColumnType":"StringType"},
+        {"Name":"value", "ColumnType":"BoolType"}],
+    "Rows":[
+        {"Row":[{"Value":"StringValue a"}, {"Value":"BoolValue True"}]},
+        {"Row":[{"Value":"StringValue b"}, {"Value":"BoolValue True"}]},
+        {"Row":[{"Value":"StringValue b"}, {"Value":"NullValue"}]},
+        {"Row":[{"Value":"StringValue b"}, {"Value":"BoolValue False"}]}
     ]
 }

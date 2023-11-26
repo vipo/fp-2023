@@ -346,6 +346,7 @@ whereConditionColumnName (Condition op1 _ op2) =
     ConstantOperand _ -> case op2 of
       ColumnOperand name -> [name]
       ConstantOperand _ -> []
+      ColumnTableOperand _ -> []
     ColumnTableOperand _ -> []
 
 filterSelect :: DataFrame -> [Condition] -> DataFrame
@@ -375,6 +376,7 @@ conditionResult cols row (Condition op1 operator op2) =
 getFilteredValue :: Operand -> [Column] -> Row -> Value
 getFilteredValue (ConstantOperand value) _ _ = value
 getFilteredValue (ColumnOperand columnName) columns row = getValueFromRow row (findColumnIndex columnName columns) 0
+getFilteredValue (ColumnTableOperand (_, columnName)) columns row = getValueFromRow row (findColumnIndex columnName columns) 0
 
 processSelect :: DataFrame -> AggregateList -> Either ErrorMessage ([Column],[Row])
 processSelect df aggList =

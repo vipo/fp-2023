@@ -22,6 +22,7 @@ import Text.ParserCombinators.ReadP (many1)
 import GHC.Generics
 import Data.Aeson
 import DataFrame as DF
+import Debug.Trace
 import GHC.Base (VecElem(DoubleElemRep))
  
 type TableName = String
@@ -29,6 +30,12 @@ type FileContent = String
 type DeserializedContent = Either ErrorMessage (TableName, DataFrame)
 type ErrorMessage = String
 type TableArray =  [TableName]
+
+data CartesianColumn = CartesianColumn (TableName, Column)
+  deriving (Show, Eq)
+
+data CartesianDataFrame = CartesianDataFrame [CartesianColumn] [Row]
+  deriving (Show, Eq)
 
 data ExecutionAlgebra next
   = LoadFile TableName (FileContent -> next)
@@ -90,7 +97,7 @@ getTables = liftF $ GetTables id
 executeSql :: String -> Execution (Either ErrorMessage DataFrame)
 executeSql sql = case parseStatement2 sql of
   Right (SelectAll tables selectWhere) -> do
-    let df = [DataFrame [Column "flag" StringType] [[StringValue "a"], [StringValue "b"]], DataFrame [Column "value" BoolType][[BoolValue True],[BoolValue True],[BoolValue False]]]
+    let df = [DataFrame [Column "flag" StringType, Column "value" BoolType] [[StringValue "a", BoolValue True], [StringValue "b", BoolValue False]], DataFrame [Column "value" BoolType][[BoolValue True],[BoolValue True],[BoolValue False]]]
     case executeSelectAll tables df selectWhere of
       Right dfs -> return $ Right dfs
       Left err -> return $ Left err
@@ -214,9 +221,9 @@ executeSelectAll tables selectedDfs whereSelect = case areTablesValid selectedDf
       Just conditions -> case isFaultyConditions conditions of
         False -> case doColumnsExistDFs (whereConditionColumnList conditions) selectedDfs of
           True -> case doColumnsExistProvidedDfs tables selectedDfs (whereConditionColumnList2 conditions) of
-            True -> Left "do stuff"
+            True -> Right $ deCartesianDataFrame $ createCartesianDataFrame selectedDfs tables
             False -> Left "Some of provided columns do not exist in provided tables or expected table where not provided after 'from'"
-          False -> Left "Some of provided columns do not exist in provided tables"
+          False -> Left "Some of provided columns do not exist in provided tables or are ambiguous"
         True -> Left "Conditions are faulty"
       Nothing -> Right $ cartesianDataFrame selectedDfs
     False -> Left "Some of provided table(s) are not valid"
@@ -226,7 +233,9 @@ areTablesValid [] = True
 areTablesValid (x:xs)
   | validateDataFrame x = areTablesValid xs
   | otherwise = False
-  
+
+-----Stuff with cartesian products and dataframes----
+
 cartesianDataFrame :: [DataFrame] -> DataFrame
 cartesianDataFrame [] = DataFrame [] [] 
 cartesianDataFrame (df@(DataFrame cols rows):xs) = case getNextDataFrame xs of
@@ -239,7 +248,40 @@ cartesianDataFrame (df@(DataFrame cols rows):xs) = case getNextDataFrame xs of
 cartesianProduct :: [[a]] -> [[a]] -> [[a]]
 cartesianProduct xs ys = [x ++ y | x <- xs, y <- ys]
 
-getNextDataFrame :: [DataFrame] -> Maybe DataFrame
+createCartesianDataFrame :: [DataFrame] -> TableArray -> CartesianDataFrame
+createCartesianDataFrame df tables = getCartesianDataFrame $ createCartesianDataFrames df tables
+
+createCartesianDataFrames :: [DataFrame] -> TableArray -> [CartesianDataFrame]
+createCartesianDataFrames ((DataFrame cols rows):xs) (y:ys) = case getNextDataFrame xs of
+  Nothing -> [CartesianDataFrame (createCartesianColumns cols y) rows]
+  Just (DataFrame dcols drows) -> [CartesianDataFrame (createCartesianColumns cols y) rows] ++ createCartesianDataFrames xs ys
+
+createCartesianColumns :: [Column] -> TableName -> [CartesianColumn]
+createCartesianColumns (x:xs) table = case getNextDataFrame xs of
+  Nothing -> [CartesianColumn (table, x)]
+  Just _ -> [CartesianColumn (table, x)] ++ createCartesianColumns xs table
+
+getCartesianDataFrame :: [CartesianDataFrame] -> CartesianDataFrame
+getCartesianDataFrame [] = CartesianDataFrame [] []
+getCartesianDataFrame (cdf@(CartesianDataFrame cols rows):xs) = 
+    case getNextDataFrame xs of
+      Nothing -> cdf
+      Just nextCdf -> 
+          getCartesianDataFrame $ [CartesianDataFrame (cols ++ dcols) (cartesianProduct rows drows)] ++ rest
+            where
+              CartesianDataFrame dcols drows = nextCdf
+              rest = filter (/= nextCdf) xs
+
+deCartesianDataFrame :: CartesianDataFrame -> DataFrame
+deCartesianDataFrame (CartesianDataFrame cols rows) = DataFrame (deCartesianColumns cols) rows
+
+deCartesianColumns :: [CartesianColumn] -> [Column]
+deCartesianColumns [] = []
+deCartesianColumns ((CartesianColumn (_, col)):xs) = [col] ++ deCartesianColumns xs
+
+-----------------------------------------------------
+
+getNextDataFrame :: [a] -> Maybe a
 getNextDataFrame [] = Nothing
 getNextDataFrame (y:_) = Just y
 

@@ -78,8 +78,8 @@ runExecuteIO (Free step) = do
           if exists
             then do
               fileContent <- readFile filePath
-              return $ next $ fileContent
-            else return $ next $ "File '" ++ tableName ++ "' does not exist"
+              return $ next $ Lib3.deserializedContent fileContent
+            else return $ next $ Left $ "File '" ++ tableName ++ "' does not exist"
 
 toFilePath :: String -> FilePath
 toFilePath tableName = "db"++ [pathSeparator] ++ tableName ++ ".json" --".txt"

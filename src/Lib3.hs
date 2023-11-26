@@ -210,44 +210,68 @@ executeSql sql = case parseStatement2 sql of
       Right dfs -> return $ Right dfs
       Left err -> return $ Left err
   Left err -> return $ Left err
+
   Right (ShowTable table) -> do
     content <- loadFile table
-    return $ Left content
+    case content of 
+      Left err -> return $ Left err
+      Right content2 -> return $ Right $ executeShowTable (snd content2) table
+  Left err -> return $ Left err
+
   Right (Insert table columns values) -> do
     content <- loadFile table
-    let dfs = [DataFrame [Column "flag" StringType] [[StringValue "a"], [StringValue "b"]], DataFrame [Column "value" BoolType, Column "flag" StringType] [[BoolValue True, StringValue "b"],[BoolValue True, StringValue "b"],[BoolValue True, StringValue "b"]]]
-    -- case content of
-    --         Left err1 -> return $ Left err1
-    --         Right deserializedContent -> do
-    case columns of
-      Just columnsProvided -> insertColumnsProvided ("employees",last dfs) columnsProvided values
-      Nothing -> insertToAll ("employees", last dfs) values
+    case content of
+            Left err1 -> return $ Left err1
+            Right deserializedContent -> do
+              case columns of
+                Just columnsProvided -> insertColumnsProvided deserializedContent columnsProvided values
+                Nothing -> insertToAll deserializedContent values
+
   Right (Update table selectUpdate selectWhere) -> do
     content <- loadFile table
-    let dfs = [DataFrame [Column "flag" StringType] [[StringValue "a"], [StringValue "b"]], DataFrame [Column "value" BoolType, Column "flag" StringType] [[BoolValue True, StringValue "b"],[BoolValue True, StringValue "b"],[BoolValue True, StringValue "b"]]]
     let condi = [Condition(ConstantOperand(IntegerValue 1)) IsEqualTo (ConstantOperand(IntegerValue 1))]
-    -- case content of
-    --         Left err1 -> return $ Left err1
-    --         Right deserializedContent -> do
-    case selectWhere of
-      Just selectWhere ->
-          case filterSelectVol2 (last dfs) selectUpdate selectWhere of
-            Right df -> return $ Right df
-            Left err -> return $ Left err
-      Nothing -> case filterSelectVol2 (last dfs) selectUpdate condi of
-        Right df -> return $ Right df
-        Left err -> return $ Left err
-  Right (Delete table conditions) -> do
-    let df = DataFrame [Column "flag" StringType, Column "nr" IntegerType] [[StringValue "d", IntegerValue 3],[StringValue "c",IntegerValue 2]]
-    case deleteExecution df $ conditions  of
-      Right dfs -> return $ Right dfs
-      Left err -> return $ Left err
-
+    case content of
+            Left err1 -> return $ Left err1
+            Right deserializedContent -> do
+              case selectWhere of
+                Just selectWhere ->
+                    case filterSelectVol2 (snd deserializedContent) selectUpdate selectWhere of
+                      Right df -> return $ Right df
+                      Left err -> return $ Left err
+                Nothing -> case filterSelectVol2 (snd deserializedContent) selectUpdate condi of
+                  Right df -> return $ Right df
+                  Left err -> return $ Left err
+                  
+  Right (Delete table conditions) -> do  
+    content <- loadFile table
+    case content of
+            Left err1 -> return $ Left err1
+            Right deserializedContent -> do
+              case deleteExecution (snd deserializedContent) $ conditions of
+                Right dfs -> return $ Right dfs
+                Left err -> return $ Left err
   Right SelectNow -> do
     da <- getTime
     let df = createNowDataFrame (uTCToString da)
     return $ Right df
 
+  Right ShowTables -> do 
+    files <- getTables
+    let df = executeShowTables files
+    return $ Right df
+
+
+  --EXECUTE SELECT ALL
+  -- let dfs = [DataFrame [Column "flag" StringType] [[StringValue "a"], [StringValue "b"]], DataFrame [Column "value" BoolType][[BoolValue True],[BoolValue True],[BoolValue False]]]
+  -- case executeSelectAll dfs Nothing of
+  --   Right df -> return $ Right df
+  --   Left err -> return $ Left err
+
+  --EXECUTE SHOW TABLE
+  -- file <- loadFile "flags"
+  -- let df = executeShowTable (DataFrame [] []) "flags" --dataframe ideti is loadFile gauta
+  -- return $ Right df
+  
 
 ---------------------------------------some update stuff starts--------------------------
 
@@ -269,19 +293,19 @@ forOneCondition columns row condition = do
   let values = whereConditionValues condition
   (if hasTwoColumnNames conditions then row else if hasTwoValues values then row else changeByRequestForOne columns row conditions values)
 
-changeByRequestForOne :: [Column] -> [Value] -> [ColumnName] -> [Value] -> [Value]
+changeByRequestForOne :: [Column] -> [DF.Value] -> [ColumnName] -> [DF.Value] -> [DF.Value]
 changeByRequestForOne columns row setColumn setValue = do
   let index = findColumnIndex (head setColumn) columns
   let newRow = replaceNth index (head setValue) row
   newRow
 
-replaceNth :: Int -> Value -> [Value] -> [Value]
+replaceNth :: Int -> DF.Value -> [DF.Value] -> [DF.Value]
 replaceNth _ _ [] = []
 replaceNth n newVal (x:xs)
   | n == 0 = newVal:xs
   | otherwise = x:replaceNth (n-1) newVal xs
 
-whereConditionValues :: Condition -> [Value]
+whereConditionValues :: Condition -> [DF.Value]
 whereConditionValues (Condition op1 _ op2) =
   case op1 of
     ConstantOperand name1 -> case op2 of
@@ -291,7 +315,7 @@ whereConditionValues (Condition op1 _ op2) =
       ConstantOperand name -> [name]
       ColumnOperand _ -> []
 
-hasTwoValues :: [Value] -> Bool
+hasTwoValues :: [DF.Value] -> Bool
 hasTwoValues values = length values == 2
 
 hasTwoColumnNames :: [ColumnName] -> Bool
@@ -319,7 +343,7 @@ insertColumnsProvidedDeserializedContent :: DeserializedContent -> SelectedColum
 insertColumnsProvidedDeserializedContent (tableName, DataFrame columns rows) changedColumns newValues =
     Right $ DataFrame columns (rows ++ [insertColumnsProvidedRecurssion columns changedColumns newValues])
 
-insertColumnsProvidedRecurssion :: [Column] -> SelectedColumns -> InsertedValues -> [Value]
+insertColumnsProvidedRecurssion :: [Column] -> SelectedColumns -> InsertedValues -> [DF.Value]
 insertColumnsProvidedRecurssion [] _ _ = []
 insertColumnsProvidedRecurssion (Column colName _ : restColumns) (ColumnsSelected changedColumns) newValues =
     case elemIndex colName changedColumns of
@@ -328,7 +352,7 @@ insertColumnsProvidedRecurssion (Column colName _ : restColumns) (ColumnsSelecte
   where
     restValues = insertColumnsProvidedRecurssion restColumns (ColumnsSelected changedColumns) newValues
 
-insertToAll :: DeserializedContent -> [Value] -> Execution (Either ErrorMessage DataFrame)
+insertToAll :: DeserializedContent -> [DF.Value] -> Execution (Either ErrorMessage DataFrame)
 insertToAll (tableName, loadedDataFrame) values = do
     let checkCount = insertToAllCheckCounts loadedDataFrame values
     either
@@ -342,12 +366,12 @@ insertToAll (tableName, loadedDataFrame) values = do
 insertCheckCounts :: SelectedColumns -> InsertedValues -> Bool
 insertCheckCounts (ColumnsSelected colNames) values = length values == length colNames
 
-insertToAllCheckCounts :: DataFrame -> [Value] -> Either ErrorMessage [Value]
+insertToAllCheckCounts :: DataFrame -> [DF.Value] -> Either ErrorMessage [DF.Value]
 insertToAllCheckCounts (DataFrame columns _) values
     | length values == length columns = Right values
     | otherwise = Left "The columns count is not the same as the provided values count"
 
-insertToAllDataFrame :: DataFrame -> [Value] -> DataFrame
+insertToAllDataFrame :: DataFrame -> [DF.Value] -> DataFrame
 insertToAllDataFrame (DataFrame columns rows) newValues =
     DataFrame columns (rows ++ [newValues])
 
@@ -388,32 +412,6 @@ createNowDataFrame time = DataFrame [Column "Now" StringType] time
 
 uTCToString :: UTCTime -> [Row]
 uTCToString utcTime = [[StringValue (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (addUTCTime (120*60) utcTime))]]
-
-
-  --return $ Left "implement me" 
-
-
-  --EXECUTE SELECT ALL
-  -- let dfs = [DataFrame [Column "flag" StringType] [[StringValue "a"], [StringValue "b"]], DataFrame [Column "value" BoolType][[BoolValue True],[BoolValue True],[BoolValue False]]]
-  -- case executeSelectAll dfs Nothing of
-  --   Right df -> return $ Right df
-  --   Left err -> return $ Left err
-
-  --EXECUTE SHOW TABLE
-  -- file <- loadFile "flags"
-  -- let df = executeShowTable (DataFrame [] []) "flags" --dataframe ideti is loadFile gauta
-  -- return $ Right df
-
-  --EXECUTE SHOW TABLES
-  --files <- getTables
-  --let df = executeShowTables files
-  --return $ Right df
-  
---   Right (ShowTable table) -> do
---     content <- loadFile table
---     case content of 
---       Left err -> return $ Left err
---       Right content2 -> return $ Right (snd content2)
 
 
 -------------------------------some JSON shit------------------------------------
@@ -656,18 +654,18 @@ insertedValuesParser = do
   values <- seperate valueParser (queryStatementParser "," >> whitespaceParser)
   return $ trace ("Parsed values: " ++ show values) values
 
-valueParser :: Parser Value
+valueParser :: Parser DF.Value
 valueParser = parseNullValue <|> parseBoolValue <|> parseStringValue <|> parseNumericValue
 
-parseNullValue :: Parser Value
+parseNullValue :: Parser DF.Value
 parseNullValue = queryStatementParser "null" >> return NullValue
 
-parseBoolValue :: Parser Value
+parseBoolValue :: Parser DF.Value
 parseBoolValue =
   (queryStatementParser "true" >> return (BoolValue True))
   <|> (queryStatementParser "false" >> return (BoolValue False))
 
-parseStringValue :: Parser Value
+parseStringValue :: Parser DF.Value
 parseStringValue = do
   strValue <- parseStringWithQuotes
   return (StringValue strValue)
@@ -679,7 +677,7 @@ parseStringWithQuotes = do
   _ <- queryStatementParser "'"
   return str
 
-parseNumericValue :: Parser Value
+parseNumericValue :: Parser DF.Value
 parseNumericValue = IntegerValue <$> parseInt
 
 parseInt :: Parser Integer

@@ -75,7 +75,7 @@ module Lib2
     doColumnsExist, 
     createSelectDataFrame,
     getColumnsRows,
-    findColumnIndex
+    findColumnIndex,
     columnsToList,
     createColumnsDataFrame,
     createTablesDataFrame

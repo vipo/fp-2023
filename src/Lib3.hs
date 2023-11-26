@@ -3,65 +3,135 @@
 {-# OPTIONS_GHC -Wno-incomplete-patterns #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use <$>" #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Lib3
   ( executeSql,
     parseStatement,
     Execution,
     ParsedStatement2,
-    ExecutionAlgebra(..)
+    ExecutionAlgebra(..),
+    deserializedContent
   )
 where
 import Lib2
 import Lib1 (renderDataFrameAsTable, findTableByName, parseSelectAllStatement, checkTupleMatch, zipColumnsAndValues, checkRowSizes)
 import Control.Monad.Free (Free (..), liftF)
-import DataFrame
+import DataFrame as DF
 import Data.Time ( UTCTime )
 import Data.Either (fromRight)
 import Text.ParserCombinators.ReadP (many1)
 import GHC.Generics
-import Data.Aeson
+import Data.Aeson --(decode, FromJSON)
+import Control.Monad
 import GHC.Base (VecElem(DoubleElemRep))
+import qualified Data.ByteString.Lazy.Char8 as BS
+import Text.Read (readMaybe)
  
 type TableName = String
 type FileContent = String
-type DeserializedContent = Either ErrorMessage (TableName, DataFrame)
+type DeserializedContent = (TableName, DataFrame)
 type ErrorMessage = String
 type TableArray =  [TableName]
 
 data ExecutionAlgebra next
-  = LoadFile TableName (FileContent -> next)
+  = LoadFile TableName (Either ErrorMessage DeserializedContent -> next)
   | GetTime (UTCTime -> next)
-  -- feel free to add more constructors heres
+  -- feel free to add more constructors heres 
   deriving Functor
 
 type Execution = Free ExecutionAlgebra
+
+
+------------------------------- data -----------------------------------
+
+data FromJSONTable = FromJSONTable {
+    deserializedtableName :: String,
+    deserializedColumns :: [FromJSONColumn],
+    deserializedRows :: [FromJSONRow]
+} deriving (Show, Eq, Generic)
 
 data FromJSONColumn = FromJSONColumn {
     deserializedName :: String,
     deserializedDataType :: String
 } deriving (Show, Eq, Generic)
 
-data FromJSONTable = FromJSONTable {
-    deserializedtableName :: String,
-    deserializedColumns :: [FromJSONColumn],
-    deserializedRows :: [[Value]]
+data FromJSONValue = FromJSONValue {
+    deserializedValue :: String              --------------------------------------------------------susitvarkyt gavus info su situo
 } deriving (Show, Eq, Generic)
+
+data FromJSONRow = FromJSONRow {
+    deserializedRow :: [FromJSONValue]
+} deriving (Show, Eq, Generic)
+
+----------------------------- instances ----------------------------------
 
 instance FromJSON FromJSONColumn where
   parseJSON (Object v) =
-    FromJSONColumn <$> v .: "name"
-                   <*> V .: "columnType"
+    FromJSONColumn <$> v .: "Name"
+                   <*> v .: "ColumnType"
   parseJSON _ = mzero
 
 instance FromJSON FromJSONTable where
   parseJSON (Object v) =
-    FromJSONTable <$> v .: "table"
-                  <*> FromJSONColumn .: "columns"
-                  <*> FromJSONRows .: "Rows"
+    FromJSONTable <$> v .: "Table"
+                  <*> v .: "Columns"
+                  <*> v .: "Rows"
   parseJSON _ = mzero
  
---instance FromJSON FromJSONTable
+instance FromJSON FromJSONValue where
+  parseJSON (Object v) = 
+    FromJSONValue <$> v .: "Value"
+  parseJSON _ = mzero
+
+instance FromJSON FromJSONRow where
+  parseJSON (Object v) = 
+    FromJSONRow <$> v .: "Row"
+  parseJSON _ = mzero
+
+------------------------------------------ a veiksi padliau? ---------------------------------------------------
+
+deserializedContent :: FileContent -> Either ErrorMessage (TableName, DataFrame)
+deserializedContent json = case (toTable json) of
+    Just fromjsontable -> Right (toDataframe fromjsontable)
+    Nothing -> Left "Failed to decode JSON"
+  
+
+toTable :: String -> Maybe FromJSONTable 
+toTable json = decode $ BS.pack json
+
+toDataframe :: FromJSONTable -> (TableName, DataFrame)
+toDataframe table =
+  (deserializedtableName table ,DataFrame
+    (map (\col -> Column (deserializedName col) (toColumnType $ deserializedDataType col)) $ deserializedColumns table)
+    (map (map convertToValue . deserializedRow) $ deserializedRows table))
+
+toColumnType :: String -> ColumnType
+toColumnType "IntegerType" = IntegerType
+toColumnType "StringType"  = StringType
+toColumnType "BoolType"    = BoolType
+toColumnType _         = error "Unsupported data type"
+
+convertToValue :: FromJSONValue -> DF.Value
+convertToValue (FromJSONValue str) =
+  case words str of
+    ["IntegerValue", val] -> IntegerValue (read val)
+    ["StringValue", val] -> StringValue val
+    ["BoolValue", "True"] -> BoolValue True
+    ["BoolValue", "False"] -> BoolValue False
+    ["NullValue"] -> NullValue
+    _ -> error "Invalid FromJSONValue format"
+
+-- handleDecodingResult :: Maybe FromJSONTable -> IO ()  --------sitas siudena jauciu turetu but pertvarkytas pagal execute preikius, cia petro isminti, kaip sujungt
+-- handleDecodingResult maybeTable =
+--   case maybeTable of
+--     Just table -> do
+--       let dataframe = toDataframe table
+--       putStrLn $ "Decoded Result: " ++ show (deserializedtableName table, dataframe)
+--     Nothing    -> putStrLn "Failed to decode JSON"  -----------------------------------------------------------------------------------------------siudenos pabaiga
+
+
+----------------------------------------------------------------------------------------------------------------
 
 -- Keep the type, modify constructors
 data ParsedStatement2 =
@@ -98,9 +168,9 @@ data ParsedStatement2 =
 data SelectedColumns = ColumnsSelected [ColumnName]
   deriving (Show, Eq)
 
-type InsertedValues = [Value]
+type InsertedValues = [DF.Value]
 
-loadFile :: TableName -> Execution FileContent
+loadFile :: TableName -> Execution (Either ErrorMessage DeserializedContent)
 loadFile name = liftF $ LoadFile name id
 
 getTime :: Execution UTCTime
@@ -111,7 +181,9 @@ executeSql sql = case parseStatement2 sql of
   Left err -> return $ Left err
   Right (ShowTable table) -> do
     content <- loadFile table
-    return $ Left content
+    case content of 
+      Left err -> return $ Left err
+      Right content2 -> return $ Right (snd content2)
   --Mildai:
   -- Right (SelectNow) -> do
   --   da <- getTime
@@ -129,7 +201,7 @@ toJSONtable table = "{\"Table\":\"" ++ show(fst(table)) ++ "\",\"Columns\":[" ++
 toJSONColumn :: Column -> String
 toJSONColumn column = "{\"Name\":\"" ++ show(getColumnName(column)) ++ ",\"ColumnType\":\"" ++ show(getType(column)) ++ "\"}"
 
-toJSONRowValue :: Value -> String
+toJSONRowValue :: DF.Value -> String
 toJSONRowValue value = "{\"Value\":\"" ++ show(value) ++ "\"}"
 
 ---------------------------------------some get stuff----------------------------
@@ -155,8 +227,8 @@ toJSONRow (x:xs)
 
 toJSONRows :: [Row] -> String
 toJSONRows (x:xs)
-  |xs /= [] = "[" ++ toJSONRow x ++ "]," ++ toJSONRows xs
-  |otherwise = "[" ++ toJSONRow x ++ "]" 
+  |xs /= [] = "{\"Row\":[" ++ toJSONRow x ++ "]}," ++ toJSONRows xs
+  |otherwise = "{\"Row\":[" ++ toJSONRow x ++ "]}" 
 
 --------------------------------Files--------------------------------------------
 -- --C:\Users\Gita\Documents\GitHub\fp-2023\db\flags.json
@@ -345,3 +417,4 @@ showTableParser = do
     table <- columnNameParser
     _ <- optional whitespaceParser
     pure $ ShowTable table
+    

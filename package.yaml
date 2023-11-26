@@ -43,6 +43,7 @@ library:
   - time
   - transformers
   - aeson
+  - bytestring
 
 executables:
   fp2023-select-all:
@@ -85,6 +86,7 @@ executables:
     - time
     - filepath
     - directory
+    - bytestring
 
 tests:
   fp2023-test:

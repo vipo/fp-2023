@@ -75,8 +75,8 @@ runExecuteIO (Free step) = do
           if exists
             then do
               fileContent <- readFile filePath
-              return $ next $ fileContent
-            else return $ next $ "File '" ++ tableName ++ "' does not exist"
+              return $ next $ Lib3.deserializedContent fileContent
+            else return $ next $ Left $ "File '" ++ tableName ++ "' does not exist"
 
 --C:\Users\Gita\Documents\GitHub\fp-2023\db\flags.json
 toFilePath :: String -> FilePath

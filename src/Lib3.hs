@@ -10,7 +10,8 @@ module Lib3
     parseStatement,
     Execution,
     ParsedStatement2,
-    ExecutionAlgebra(..)
+    ExecutionAlgebra(..),
+    deserializedContent
   )
 where
 import Lib2
@@ -25,15 +26,16 @@ import Data.Aeson --(decode, FromJSON)
 import Control.Monad
 import GHC.Base (VecElem(DoubleElemRep))
 import qualified Data.ByteString.Lazy.Char8 as BS
+import Text.Read (readMaybe)
  
 type TableName = String
 type FileContent = String
-type DeserializedContent = Either ErrorMessage (TableName, DataFrame)
+type DeserializedContent = (TableName, DataFrame)
 type ErrorMessage = String
 type TableArray =  [TableName]
 
 data ExecutionAlgebra next
-  = LoadFile TableName (FileContent -> next)
+  = LoadFile TableName (Either ErrorMessage DeserializedContent -> next)
   | GetTime (UTCTime -> next)
   -- feel free to add more constructors heres 
   deriving Functor
@@ -89,41 +91,44 @@ instance FromJSON FromJSONRow where
 
 ------------------------------------------ a veiksi padliau? ---------------------------------------------------
 
-toTable :: String -> Maybe FromJSONTable
+deserializedContent :: FileContent -> Either ErrorMessage (TableName, DataFrame)
+deserializedContent json = case (toTable json) of
+    Just fromjsontable -> Right (toDataframe fromjsontable)
+    Nothing -> Left "Failed to decode JSON"
+  
+
+toTable :: String -> Maybe FromJSONTable 
 toTable json = decode $ BS.pack json
 
-toDataframe :: FromJSONTable -> DataFrame
+toDataframe :: FromJSONTable -> (TableName, DataFrame)
 toDataframe table =
-  DataFrame
+  (deserializedtableName table ,DataFrame
     (map (\col -> Column (deserializedName col) (toColumnType $ deserializedDataType col)) $ deserializedColumns table)
-    (map (map toDataframeValue . deserializedRow) $ deserializedRows table)
+    (map (map convertToValue . deserializedRow) $ deserializedRows table))
 
 toColumnType :: String -> ColumnType
-toColumnType "Integer" = IntegerType
-toColumnType "String"  = StringType
-toColumnType "Bool"    = BoolType
+toColumnType "IntegerType" = IntegerType
+toColumnType "StringType"  = StringType
+toColumnType "BoolType"    = BoolType
 toColumnType _         = error "Unsupported data type"
 
-toDataframeValue :: FromJSONValue -> DF.Value
-toDataframeValue (FromJSONValue val) = case toDataframeValueType val of
-  IntegerType -> IntegerValue (read val)
-  StringType  -> StringValue val
-  BoolType    -> BoolValue (read val)
+convertToValue :: FromJSONValue -> DF.Value
+convertToValue (FromJSONValue str) =
+  case words str of
+    ["IntegerValue", val] -> IntegerValue (read val)
+    ["StringValue", val] -> StringValue val
+    ["BoolValue", "True"] -> BoolValue True
+    ["BoolValue", "False"] -> BoolValue False
+    ["NullValue"] -> NullValue
+    _ -> error "Invalid FromJSONValue format"
 
-toDataframeValueType :: String -> ColumnType
-toDataframeValueType "Integer" = IntegerType
-toDataframeValueType "String"  = StringType
-toDataframeValueType "Bool"    = BoolType
-toDataframeValueType _         = error "Unsupported data type"
-
-
-handleDecodingResult :: Maybe FromJSONTable -> IO ()  --------sitas siudena jauciu turetu but pertvarkytas pagal execute preikius, cia petro isminti, kaip sujungt
-handleDecodingResult maybeTable =
-  case maybeTable of
-    Just table -> do
-      let dataframe = toDataframe table
-      putStrLn $ "Decoded Result: " ++ show (deserializedtableName table, dataframe)
-    Nothing    -> putStrLn "Failed to decode JSON"  -----------------------------------------------------------------------------------------------siudenos pabaiga
+-- handleDecodingResult :: Maybe FromJSONTable -> IO ()  --------sitas siudena jauciu turetu but pertvarkytas pagal execute preikius, cia petro isminti, kaip sujungt
+-- handleDecodingResult maybeTable =
+--   case maybeTable of
+--     Just table -> do
+--       let dataframe = toDataframe table
+--       putStrLn $ "Decoded Result: " ++ show (deserializedtableName table, dataframe)
+--     Nothing    -> putStrLn "Failed to decode JSON"  -----------------------------------------------------------------------------------------------siudenos pabaiga
 
 
 ----------------------------------------------------------------------------------------------------------------
@@ -165,7 +170,7 @@ data SelectedColumns = ColumnsSelected [ColumnName]
 
 type InsertedValues = [DF.Value]
 
-loadFile :: TableName -> Execution FileContent
+loadFile :: TableName -> Execution (Either ErrorMessage DeserializedContent)
 loadFile name = liftF $ LoadFile name id
 
 getTime :: Execution UTCTime
@@ -176,7 +181,9 @@ executeSql sql = case parseStatement2 sql of
   Left err -> return $ Left err
   Right (ShowTable table) -> do
     content <- loadFile table
-    return $ Left content
+    case content of 
+      Left err -> return $ Left err
+      Right content2 -> return $ Right (snd content2)
   --Mildai:
   -- Right (SelectNow) -> do
   --   da <- getTime
@@ -410,3 +417,4 @@ showTableParser = do
     table <- columnNameParser
     _ <- optional whitespaceParser
     pure $ ShowTable table
+    

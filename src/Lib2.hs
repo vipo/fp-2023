@@ -1,6 +1,8 @@
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE InstanceSigs #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use lambda-case" #-}
 
 module Lib2
   ( 
@@ -69,6 +71,11 @@ module Lib2
     isValidTableName,
     isOneWord,
     dropWhiteSpaces,
+    parseSatisfy,
+    doColumnsExist, 
+    createSelectDataFrame,
+    getColumnsRows,
+    findColumnIndex
     columnsToList,
     createColumnsDataFrame,
     createTablesDataFrame
@@ -94,6 +101,7 @@ import Data.Either
 import Text.ParserCombinators.ReadP (get)
 import Data.Foldable (find)
 import Control.Alternative.Free (Alt(alternatives))
+import Debug.Trace (trace)
 
 type ErrorMessage = String
 type Database = [(TableName, DataFrame)]
@@ -222,6 +230,7 @@ instance Ord Value where
     compare _ NullValue = GT
 
 -----------------------------------------------------------------------------------------------------------
+
 
 parseStatement :: String -> Either ErrorMessage ParsedStatement
 parseStatement query = case runParser p query of
@@ -460,6 +469,10 @@ findSumValue NullValue (IntegerValue b) = IntegerValue b
 findSumValue _ _ = NullValue
 
 -----------------------------------------------------------------------------------------------------------
+parseSatisfy :: (Char -> Bool) -> Parser Char
+parseSatisfy predicate = Parser $ \input -> case input of
+  [] -> Left "Empty input"
+  (x:xs) -> if predicate x then Right (x, xs) else Left ("Unexpected character: " ++ [x])
 
 queryStatementParser :: String -> Parser String
 queryStatementParser queryStatement = Parser $ \query ->
@@ -702,9 +715,9 @@ isNumber (x:xs)
 getOperand :: String -> String
 getOperand [] = []
 getOperand (x:xs)
-  | x == '=' || x == '>' || x == '<' || x == ' '|| x == ';'|| x == '!' = ""
+  | x == '=' || x == '>' || x == '<' || x == ' '|| x == ';'|| x == '!'|| x == ',' = "" 
   | otherwise = x : getOperand xs
-
+-- 
 isBool :: String -> Bool
 isBool str
   | str == "True" || str == "False" = True
@@ -825,6 +838,7 @@ columnType (x:xs) i colIndex
 
 getType :: Column -> ColumnType
 getType (Column _ colType) = colType
+
 
 getColumnList :: [ColumnName] -> [ColumnType] -> [Column]
 getColumnList [] [] = []

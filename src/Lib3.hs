@@ -34,14 +34,20 @@ type DeserializedContent = (TableName, DataFrame)
 type ErrorMessage = String
 type TableArray =  [TableName]
 
-data ExecutionAlgebra next
-  = LoadFile TableName (Either ErrorMessage DeserializedContent -> next)
+data CartesianColumn = CartesianColumn (TableName, Column)
+  deriving (Show, Eq)
+
+data CartesianDataFrame = CartesianDataFrame [CartesianColumn] [Row]
+  deriving (Show, Eq)
+
+data ExecutionAlgebra next = 
+    GetTables (TableArray -> next)
+  | LoadFile TableName (Either ErrorMessage DeserializedContent -> next)
   | GetTime (UTCTime -> next)
   -- feel free to add more constructors heres 
   deriving Functor
 
 type Execution = Free ExecutionAlgebra
-
 
 ------------------------------- data -----------------------------------
 
@@ -176,22 +182,42 @@ loadFile name = liftF $ LoadFile name id
 getTime :: Execution UTCTime
 getTime = liftF $ GetTime id
 
+getTables :: Execution TableArray
+getTables = liftF $ GetTables id
+
 executeSql :: String -> Execution (Either ErrorMessage DataFrame)
 executeSql sql = case parseStatement2 sql of
-  Left err -> return $ Left err
-  Right (ShowTable table) -> do
-    content <- loadFile table
-    case content of 
+  Right (SelectAll tables selectWhere) -> do
+    let df = [DataFrame [Column "flag" StringType, Column "value" BoolType] [[StringValue "a", BoolValue True], [StringValue "b", BoolValue False]], DataFrame [Column "value" BoolType][[BoolValue True],[BoolValue True],[BoolValue False]]]
+    case executeSelectAll tables df selectWhere of
+      Right dfs -> return $ Right dfs
       Left err -> return $ Left err
-      Right content2 -> return $ Right (snd content2)
-  --Mildai:
-  -- Right (SelectNow) -> do
-  --   da <- getTime
-  --   let df = todataframe da
-  --   return $ Right df
+  Left err -> return $ Left err
 
--- createNowDataFrame :: UTCTime -> DataFrame
--- createNowDataFrame time = DataFrame [Column "Now" StringType] [] <-Stringas
+  --return $ Left "implement me" 
+
+
+  --EXECUTE SELECT ALL
+  -- let dfs = [DataFrame [Column "flag" StringType] [[StringValue "a"], [StringValue "b"]], DataFrame [Column "value" BoolType][[BoolValue True],[BoolValue True],[BoolValue False]]]
+  -- case executeSelectAll dfs Nothing of
+  --   Right df -> return $ Right df
+  --   Left err -> return $ Left err
+
+  --EXECUTE SHOW TABLE
+  -- file <- loadFile "flags"
+  -- let df = executeShowTable (DataFrame [] []) "flags" --dataframe ideti is loadFile gauta
+  -- return $ Right df
+
+  --EXECUTE SHOW TABLES
+  --files <- getTables
+  --let df = executeShowTables files
+  --return $ Right df
+  
+--   Right (ShowTable table) -> do
+--     content <- loadFile table
+--     case content of 
+--       Left err -> return $ Left err
+--       Right content2 -> return $ Right (snd content2)
 
 -------------------------------some JSON shit------------------------------------
 
@@ -231,7 +257,7 @@ toJSONRows (x:xs)
   |otherwise = "{\"Row\":[" ++ toJSONRow x ++ "]}" 
 
 --------------------------------Files--------------------------------------------
--- --C:\Users\Gita\Documents\GitHub\fp-2023\db\flags.json
+
 toFilePath :: TableName -> FilePath
 toFilePath tableName = "db/" ++ show(tableName) ++ ".json" --".txt"
 
@@ -278,6 +304,117 @@ parseStatement2 query = case runParser p query of
                <|> updateParser
                <|> deleteParser
                <|> selectNowParser
+
+--------------------------------------------------------------------------------
+
+executeShowTable :: DataFrame -> TableName -> DataFrame
+executeShowTable df table = createColumnsDataFrame (columnsToList df) table
+
+executeShowTables :: TableArray -> DataFrame
+executeShowTables tables = createTablesDataFrame tables
+
+executeSelectAll :: TableArray -> [DataFrame] -> Maybe WhereSelect -> Either ErrorMessage DataFrame
+executeSelectAll tables selectedDfs whereSelect = case areTablesValid selectedDfs of
+    True -> case whereSelect of
+      Just conditions -> case isFaultyConditions conditions of
+        False -> case doColumnsExistDFs (whereConditionColumnList conditions) selectedDfs of
+          True -> case doColumnsExistProvidedDfs tables selectedDfs (whereConditionColumnList2 conditions) of
+            True -> Right $ deCartesianDataFrame $ createCartesianDataFrame selectedDfs tables
+            False -> Left "Some of provided columns do not exist in provided tables or expected table where not provided after 'from'"
+          False -> Left "Some of provided columns do not exist in provided tables or are ambiguous"
+        True -> Left "Conditions are faulty"
+      Nothing -> Right $ cartesianDataFrame selectedDfs
+    False -> Left "Some of provided table(s) are not valid"
+
+areTablesValid :: [DataFrame] -> Bool
+areTablesValid [] = True
+areTablesValid (x:xs)
+  | validateDataFrame x = areTablesValid xs
+  | otherwise = False
+
+-----Stuff with cartesian products and dataframes----
+
+cartesianDataFrame :: [DataFrame] -> DataFrame
+cartesianDataFrame [] = DataFrame [] [] 
+cartesianDataFrame (df@(DataFrame cols rows):xs) = case getNextDataFrame xs of
+  Nothing -> df
+  Just nextDf -> cartesianDataFrame $ [DataFrame (cols ++ dcols) (cartesianProduct rows drows)] ++ rest
+    where
+      DataFrame dcols drows = nextDf
+      rest = filter (/= nextDf) xs
+
+cartesianProduct :: [[a]] -> [[a]] -> [[a]]
+cartesianProduct xs ys = [x ++ y | x <- xs, y <- ys]
+
+createCartesianDataFrame :: [DataFrame] -> TableArray -> CartesianDataFrame
+createCartesianDataFrame df tables = getCartesianDataFrame $ createCartesianDataFrames df tables
+
+createCartesianDataFrames :: [DataFrame] -> TableArray -> [CartesianDataFrame]
+createCartesianDataFrames ((DataFrame cols rows):xs) (y:ys) = case getNextDataFrame xs of
+  Nothing -> [CartesianDataFrame (createCartesianColumns cols y) rows]
+  Just (DataFrame dcols drows) -> [CartesianDataFrame (createCartesianColumns cols y) rows] ++ createCartesianDataFrames xs ys
+
+createCartesianColumns :: [Column] -> TableName -> [CartesianColumn]
+createCartesianColumns (x:xs) table = case getNextDataFrame xs of
+  Nothing -> [CartesianColumn (table, x)]
+  Just _ -> [CartesianColumn (table, x)] ++ createCartesianColumns xs table
+
+getCartesianDataFrame :: [CartesianDataFrame] -> CartesianDataFrame
+getCartesianDataFrame [] = CartesianDataFrame [] []
+getCartesianDataFrame (cdf@(CartesianDataFrame cols rows):xs) = 
+    case getNextDataFrame xs of
+      Nothing -> cdf
+      Just nextCdf -> 
+          getCartesianDataFrame $ [CartesianDataFrame (cols ++ dcols) (cartesianProduct rows drows)] ++ rest
+            where
+              CartesianDataFrame dcols drows = nextCdf
+              rest = filter (/= nextCdf) xs
+
+deCartesianDataFrame :: CartesianDataFrame -> DataFrame
+deCartesianDataFrame (CartesianDataFrame cols rows) = DataFrame (deCartesianColumns cols) rows
+
+deCartesianColumns :: [CartesianColumn] -> [Column]
+deCartesianColumns [] = []
+deCartesianColumns ((CartesianColumn (_, col)):xs) = [col] ++ deCartesianColumns xs
+
+-----------------------------------------------------
+
+getNextDataFrame :: [a] -> Maybe a
+getNextDataFrame [] = Nothing
+getNextDataFrame (y:_) = Just y
+
+doColumnsExistDFs :: [ColumnName] -> [DataFrame] -> Bool
+doColumnsExistDFs _ [] = False
+doColumnsExistDFs colNames dataFrames = all (\colName -> any (\df -> doColumnsExist [colName] df) dataFrames) colNames
+
+whereConditionColumnList2 :: [Condition] -> [(TableName, ColumnName)]
+whereConditionColumnList2 [] = []
+whereConditionColumnList2 (x:xs) = whereConditionColumnName2 x ++ whereConditionColumnList2 xs
+
+whereConditionColumnName2 :: Condition -> [(TableName, ColumnName)]
+whereConditionColumnName2 (Condition op1 _ op2) =
+  case op1 of
+    ColumnTableOperand name1 -> case op2 of
+      ColumnTableOperand name2 -> [name1] ++ [name2]
+      _ -> [name1]
+    ConstantOperand _ -> case op2 of
+      ColumnTableOperand name -> [name]
+      ConstantOperand _ -> []
+    ColumnOperand _ -> []
+
+doColumnsExistProvidedDfs :: TableArray -> [DataFrame] -> [(TableName, ColumnName)] -> Bool
+doColumnsExistProvidedDfs _ _ [] = True
+doColumnsExistProvidedDfs ta dfs ((table, column):xs)
+  | checkIfConditionsMatchesWithData ta dfs (table, column) = doColumnsExistProvidedDfs ta dfs xs
+  | otherwise = False
+
+checkIfConditionsMatchesWithData :: TableArray -> [DataFrame] -> (TableName, ColumnName) -> Bool
+checkIfConditionsMatchesWithData [] _ _ = False
+checkIfConditionsMatchesWithData _ [] _ = False
+checkIfConditionsMatchesWithData (table:tables) (df:dataFrames) (targetTable, targetColumn)
+  | table == targetTable && doColumnsExist [targetColumn] df = True
+  | otherwise = checkIfConditionsMatchesWithData tables dataFrames (targetTable, targetColumn)
+--------------------------------------------------------------------------------
 
 selectNowParser :: Parser ParsedStatement2
 selectNowParser = do
@@ -390,6 +527,62 @@ selectStatementParser = do
     selectWhere <- optional whereParser
     _ <- optional whitespaceParser
     pure $ Select specialSelect tableArray selectWhere
+
+selectDataParser :: Parser SpecialSelect
+selectDataParser = tryParseAggregate <|> tryParseColumn <|> tryParseColumnTable
+  where
+    tryParseAggregate = do
+      aggregateList <- seperate aggregateParser (optional whitespaceParser >> char ',' *> optional whitespaceParser)
+      _ <- trashParser
+      return $ SelectAggregate aggregateList
+    tryParseColumn = do
+      columnNames <- seperate columnNameParser (optional whitespaceParser >> char ',' *> optional whitespaceParser)
+      _ <- trashParser
+      return $ SelectColumns columnNames
+    tryParseColumnTable = do
+      columnsWithTables <- seperate columnNameTableParser (optional whitespaceParser >> char ',' *> optional whitespaceParser)
+      _ <- trashParser
+      return $ SelectColumnsTables columnsWithTables
+
+whereParser :: Parser WhereSelect
+whereParser = do
+  _ <- whitespaceParser
+  _ <- queryStatementParser "where"
+  _ <- whitespaceParser
+  some whereAndExist
+  where 
+    whereAndExist :: Parser Condition
+    whereAndExist = do 
+      condition <- whereConditionParser
+      _ <- optional (whitespaceParser >> andParser)
+      pure condition
+
+andParser :: Parser And
+andParser = queryStatementParser "and" >> pure And
+
+whereConditionParser :: Parser Condition
+whereConditionParser = do
+  _ <- optional whitespaceParser
+  operand1 <- operandParser
+  _ <- optional whitespaceParser 
+  operator <- operatorParser
+  _ <- optional whitespaceParser
+  operand2 <- operandParser
+  return $ Condition operand1 operator operand2
+
+operandParser :: Parser Operand
+operandParser = (ConstantOperand <$> constantParser)
+               <|> (ColumnTableOperand <$> columnNameTableParser)
+               <|> (ColumnOperand <$> columnNameParser)
+
+columnNameTableParser :: Parser (TableName, ColumnName)
+columnNameTableParser = do
+  table <- columnNameParser
+  _ <- char '.'
+  column <- columnNameParser
+  return (table, column)
+
+-------------------------------------------------------------------------------
 
 selectTablesParser :: Parser TableArray
 selectTablesParser = tryParseTable

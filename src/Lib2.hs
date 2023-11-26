@@ -16,20 +16,20 @@ module Lib2
     WhereSelect,
     validateDataFrame,
     parseStatement,
-    Parser, 
-    whereParser,
-    selectDataParser,
+    Parser,
     getColumnName,
+    aggregateParser,
     runParser,
     stopParseAt,
     whitespaceParser,
     queryStatementParser,
-    whereConditionParser,
+    operatorParser,
     constantParser,
     Condition,
     trashParser,
     seperate,
     columnNameParser,
+    tableNameParser,
     getType,
     char,
     optional,
@@ -41,6 +41,7 @@ module Lib2
     fail,
     isFaultyConditions,
     isFaultyCondition,
+    doColumnsExist,
     areRowsEmpty,
     whereConditionColumnList,
     whereConditionColumnName,
@@ -66,9 +67,11 @@ module Lib2
     findSumValue,
     executeStatement,
     isValidTableName,
-    tableNameParser,
     isOneWord,
-    dropWhiteSpaces
+    dropWhiteSpaces,
+    columnsToList,
+    createColumnsDataFrame,
+    createTablesDataFrame
   )
 where
 
@@ -105,12 +108,12 @@ data AggregateFunction = Sum | Max
 data And = And
   deriving (Show, Eq)
 
-data SpecialSelect = SelectAggregate AggregateList | SelectColumns [ColumnName]
+data SpecialSelect = SelectAggregate AggregateList | SelectColumns [ColumnName] | SelectColumnsTables [(TableName, ColumnName)]
   deriving (Show, Eq)
 
 type AggregateList = [(AggregateFunction, ColumnName)]
 
-data Operand = ColumnOperand ColumnName | ConstantOperand Value
+data Operand = ColumnOperand ColumnName | ConstantOperand Value | ColumnTableOperand (TableName, ColumnName)
   deriving (Show, Eq)
 
 data Operator =
@@ -343,6 +346,8 @@ whereConditionColumnName (Condition op1 _ op2) =
     ConstantOperand _ -> case op2 of
       ColumnOperand name -> [name]
       ConstantOperand _ -> []
+      ColumnTableOperand _ -> []
+    ColumnTableOperand _ -> []
 
 filterSelect :: DataFrame -> [Condition] -> DataFrame
 filterSelect df [] = df
@@ -371,6 +376,7 @@ conditionResult cols row (Condition op1 operator op2) =
 getFilteredValue :: Operand -> [Column] -> Row -> Value
 getFilteredValue (ConstantOperand value) _ _ = value
 getFilteredValue (ColumnOperand columnName) columns row = getValueFromRow row (findColumnIndex columnName columns) 0
+getFilteredValue (ColumnTableOperand (_, columnName)) columns row = getValueFromRow row (findColumnIndex columnName columns) 0
 
 processSelect :: DataFrame -> AggregateList -> Either ErrorMessage ([Column],[Row])
 processSelect df aggList =

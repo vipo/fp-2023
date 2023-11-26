@@ -71,7 +71,12 @@ module Lib2
     tableNameParser,
     isOneWord,
     dropWhiteSpaces,
-    parseSatisfy
+    parseSatisfy,
+    doColumnsExist, 
+    createSelectDataFrame,
+    getColumnsRows,
+    columnsToList,
+    findColumnIndex
   )
 where
 
@@ -223,10 +228,7 @@ instance Ord Value where
     compare _ NullValue = GT
 
 -----------------------------------------------------------------------------------------------------------
-parseSatisfy :: (Char -> Bool) -> Parser Char
-parseSatisfy predicate = Parser $ \input -> case input of
-  [] -> Left "Empty input"
-  (x:xs) -> if predicate x then Right (x, xs) else Left ("Unexpected character: " ++ [x])
+
 
 parseStatement :: String -> Either ErrorMessage ParsedStatement
 parseStatement query = case runParser p query of
@@ -462,6 +464,10 @@ findSumValue NullValue (IntegerValue b) = IntegerValue b
 findSumValue _ _ = NullValue
 
 -----------------------------------------------------------------------------------------------------------
+parseSatisfy :: (Char -> Bool) -> Parser Char
+parseSatisfy predicate = Parser $ \input -> case input of
+  [] -> Left "Empty input"
+  (x:xs) -> if predicate x then Right (x, xs) else Left ("Unexpected character: " ++ [x])
 
 queryStatementParser :: String -> Parser String
 queryStatementParser queryStatement = Parser $ \query ->
@@ -704,9 +710,9 @@ isNumber (x:xs)
 getOperand :: String -> String
 getOperand [] = []
 getOperand (x:xs)
-  | x == '=' || x == '>' || x == '<' || x == ' '|| x == ';'|| x == '!' = ""
+  | x == '=' || x == '>' || x == '<' || x == ' '|| x == ';'|| x == '!'|| x == ',' = "" 
   | otherwise = x : getOperand xs
-
+-- 
 isBool :: String -> Bool
 isBool str
   | str == "True" || str == "False" = True
@@ -827,6 +833,7 @@ columnType (x:xs) i colIndex
 
 getType :: Column -> ColumnType
 getType (Column _ colType) = colType
+
 
 getColumnList :: [ColumnName] -> [ColumnType] -> [Column]
 getColumnList [] [] = []

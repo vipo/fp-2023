@@ -75,8 +75,8 @@ runExecuteIO (Free step) = do
           if exists
             then do
               content <- readFile filePath
-              return $ next $ Lib3.parseTable content
-            else return $ next $ Left $ "File " ++ tableName ++ ".json does not exist"
+              return $ next content
+            else return $ next $ "File " ++ tableName ++ ".json does not exist"
 
 --C:\Users\Gita\Documents\GitHub\fp-2023\db\flags.json
 toFilePath :: String -> FilePath

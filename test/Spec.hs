@@ -2,6 +2,7 @@ import Data.Maybe ()
 import InMemoryTables qualified as D
 import Lib1
 import Lib2
+import Lib3
 import Test.Hspec
 import DataFrame
 import Data.Either

@@ -1,11 +1,10 @@
-import Data.Either
 import Data.Maybe ()
 import InMemoryTables qualified as D
 import Lib1
 import Lib2
 import Test.Hspec
 import DataFrame
-
+import Data.Either
 
 main :: IO ()
 main = hspec $ do

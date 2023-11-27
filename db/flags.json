@@ -1,12 +1,1 @@
-{
-    "Table":"flags",
-    "Columns":[
-        {"Name":"flag", "ColumnType":"StringType"},
-        {"Name":"value", "ColumnType":"BoolType"}],
-    "Rows":[
-        {"Row":[{"Value":"StringValue a"}, {"Value":"BoolValue True"}]},
-        {"Row":[{"Value":"StringValue b"}, {"Value":"BoolValue True"}]},
-        {"Row":[{"Value":"StringValue b"}, {"Value":"NullValue"}]},
-        {"Row":[{"Value":"StringValue b"}, {"Value":"BoolValue False"}]}
-    ]
-}
+{"Table":"flags","Columns":[{"Name":"flag","ColumnType":"StringType"},{"Name":"value","ColumnType":"BoolType"}],"Rows":[]}

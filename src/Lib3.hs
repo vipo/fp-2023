@@ -277,7 +277,7 @@ executeSql sql = case parseStatement2 sql of
     let df = executeShowTables files
     return $ Right df
 
-  Right (Select specialSelect tables selectWhere) -> do
+  Right (Lib3.Select specialSelect tables selectWhere) -> do
     contents <- loadFromFiles tables
     case contents of
       Right tuples -> case executeSelectWithAllSauces specialSelect tables (snd $ switchListToTuple' tuples) selectWhere of

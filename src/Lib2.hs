@@ -117,7 +117,7 @@ data AggregateFunction = Sum | Max
 data And = And
   deriving (Show, Eq)
 
-data SpecialSelect = SelectAggregate AggregateList | SelectColumns [ColumnName] | SelectColumnsTables [(TableName, ColumnName)]
+data SpecialSelect = SelectAggregate AggregateList | SelectColumns [ColumnName]
   deriving (Show, Eq)
 
 type AggregateList = [(AggregateFunction, ColumnName)]

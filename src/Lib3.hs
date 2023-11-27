@@ -20,11 +20,12 @@ module Lib3
     Execution,
     ParsedStatement2,
     ExecutionAlgebra(..),
-    deserializedContent
+    deserializedContent,
+    serializedContent
   )
 where
 import Lib2
-import Lib1 (renderDataFrameAsTable, findTableByName, parseSelectAllStatement, checkTupleMatch, zipColumnsAndValues, checkRowSizes)
+import Lib1 (renderDataFrameAsTable, findTableByName, parseSelectAllStatement, checkTupleMatch, zipColumnsAndValues, checkRowSizes, validateDataFrame)
 import Control.Monad.Free (Free (..), liftF)
 import Data.Time
 import DataFrame as DF
@@ -59,6 +60,7 @@ data CartesianDataFrame = CartesianDataFrame [CartesianColumn] [Row]
 data ExecutionAlgebra next = 
     GetTables (TableArray -> next)
   | LoadFile TableName (Either ErrorMessage DeserializedContent -> next)
+  | SaveFile  (TableName, DataFrame) (() -> next)
   | GetTime (UTCTime -> next)
   -- feel free to add more constructors heres 
   deriving Functor
@@ -225,8 +227,8 @@ executeSql sql = case parseStatement2 sql of
             Left err1 -> return $ Left err1
             Right deserializedContent -> do
               case columns of
-                Just columnsProvided -> insertColumnsProvided deserializedContent columnsProvided values
-                Nothing -> insertToAll deserializedContent values
+                Just columnsProvided -> (insertColumnsProvided deserializedContent columnsProvided values)
+                Nothing -> (insertToAll deserializedContent values)
 
   Right (Update table selectUpdate selectWhere) -> do
     content <- loadFile table
@@ -236,11 +238,15 @@ executeSql sql = case parseStatement2 sql of
             Right deserializedContent -> do
               case selectWhere of
                 Just selectWhere ->
-                    case filterSelectVol2 (snd deserializedContent) selectUpdate selectWhere of
-                      Right df -> return $ Right df
+                    case (filterSelectVol2 (snd deserializedContent) selectUpdate selectWhere) of
+                      Right df -> do
+                        saveFile (table, df)
+                        return $ Right df
                       Left err -> return $ Left err
-                Nothing -> case filterSelectVol2 (snd deserializedContent) selectUpdate condi of
-                  Right df -> return $ Right df
+                Nothing -> case (filterSelectVol2 (snd deserializedContent) selectUpdate condi) of
+                  Right df -> do
+                        saveFile (table, df)
+                        return $ Right df
                   Left err -> return $ Left err
                   
   Right (Delete table conditions) -> do  
@@ -248,8 +254,10 @@ executeSql sql = case parseStatement2 sql of
     case content of
             Left err1 -> return $ Left err1
             Right deserializedContent -> do
-              case deleteExecution (snd deserializedContent) $ conditions of
-                Right dfs -> return $ Right dfs
+              case (deleteExecution (snd deserializedContent) $ conditions) of
+                Right dfs -> do
+                        saveFile (table, dfs)
+                        return $ Right dfs
                 Left err -> return $ Left err
   Right SelectNow -> do
     da <- getTime
@@ -262,7 +270,7 @@ executeSql sql = case parseStatement2 sql of
     return $ Right df
 
 
-  --EXECUTE SELECT ALL
+  --EXECUTE SELECT ALL 
   -- let dfs = [DataFrame [Column "flag" StringType] [[StringValue "a"], [StringValue "b"]], DataFrame [Column "value" BoolType][[BoolValue True],[BoolValue True],[BoolValue False]]]
   -- case executeSelectAll dfs Nothing of
   --   Right df -> return $ Right df
@@ -370,7 +378,9 @@ insertColumnsProvided deserializedContent justColumns values =
     True -> 
       if insertCheckCounts justColumns values then (case insertColumnsProvidedDeserializedContent deserializedContent justColumns values of
         Left errMsg -> return $ Left errMsg
-        Right updatedDataFrame -> return (Right updatedDataFrame)) else return $ Left "Behold! I, your sovereign, detect errors in thy counts of values and columns. Attend swiftly, rectify this ledger amiss, for accuracy befits our royal domain."
+        Right updatedDataFrame -> do 
+          saveFile (fst deserializedContent, updatedDataFrame)
+          return (Right updatedDataFrame)) else return $ Left "Behold! I, your sovereign, detect errors in thy counts of values and columns. Attend swiftly, rectify this ledger amiss, for accuracy befits our royal domain."
     False -> return $ Left "The provided columns do not exist in the table"
 
 insertColumnsProvidedDeserializedContent :: DeserializedContent -> SelectedColumns -> InsertedValues -> Either ErrorMessage DataFrame
@@ -393,7 +403,7 @@ insertToAll (tableName, loadedDataFrame) values = do
         (return . Left)
         (\newValues -> do
             let updatedDataFrame = insertToAllDataFrame loadedDataFrame newValues
-            --saveTable (tableName, updatedDataFrame)
+            saveFile (tableName, updatedDataFrame)
             return $ Right updatedDataFrame)
         checkCount
 
@@ -451,14 +461,19 @@ uTCToString utcTime = [[StringValue (formatTime defaultTimeLocale "%Y-%m-%d %H:%
 -------------------------------some JSON shit------------------------------------
 
 toJSONtable :: (TableName, (DataFrame)) -> String
-toJSONtable table = "{\"Table\":\"" ++ show (fst (table)) ++ "\",\"Columns\":[" ++ show (toJSONColumns (toColumnList (snd (table)))) ++ "],\"Rows\":[" ++ show (toJSONRows (toRowList (snd (table)))) ++"]}"
+toJSONtable table = "{\"Table\":"++"" ++ show (fst (table)) ++ ""++",\"Columns\":[" ++ toJSONColumns (toColumnList (snd (table))) ++ "],\"Rows\":[" ++ toJSONRows (toRowList (snd (table))) ++"]}"
 
 toJSONColumn :: Column -> String
-toJSONColumn column = "{\"Name\":\"" ++ show (getColumnName (column)) ++ ",\"ColumnType\":\"" ++ show (getType (column)) ++ "\"}"
+toJSONColumn column = "{\"Name\":"++"" ++ show (getColumnName (column)) ++ ",\"ColumnType\":"++"\"" ++ show (getType (column)) ++ "\""++"}"
 
 toJSONRowValue :: DF.Value -> String
-toJSONRowValue value = "{\"Value\":\"" ++ show(value) ++ "\"}"
+toJSONRowValue value = "{\"Value\":"++"\"" ++ fixedValueString(show(value)) ++ "\""++"}"
 
+fixedValueString :: String -> String
+fixedValueString [] = []
+fixedValueString (x:xs)
+  |x /= '"' = [x] ++ fixedValueString xs
+  |otherwise = fixedValueString xs
 ---------------------------------------some get stuff----------------------------
 
 toColumnList :: DataFrame -> [Column]
@@ -491,9 +506,19 @@ toJSONRows (x:xs)
 toFilePath :: TableName -> FilePath
 toFilePath tableName = "db/" ++ show (tableName) ++ ".json" --".txt"
 
-writeTableToFile :: (TableName, DataFrame) -> IO ()
-writeTableToFile table = writeFile (toFilePath (fst (table))) (toJSONtable (table))
+serializedContent ::(TableName, DataFrame) -> Either ErrorMessage FileContent 
+serializedContent table = do
+  _ <- Lib1.validateDataFrame (snd table) 
+  return (serializedTable table)
 
+serializedTable :: (TableName, DataFrame) -> FileContent 
+serializedTable table = (toJSONtable (table))
+
+-- writeTableToFile :: (TableName, DataFrame) -> IO ()
+-- writeTableToFile table = writeFile (toFilePath (fst (table))) (toJSONtable (table))
+
+saveFile :: (TableName, DataFrame) -> Execution ()
+saveFile table = liftF $ SaveFile table id
 ---------------------------------------------------------------------------------
 
 parseStatement2 :: String -> Either ErrorMessage ParsedStatement2
@@ -559,7 +584,7 @@ executeSelectAll tables selectedDfs whereSelect = case areTablesValid selectedDf
 areTablesValid :: [DataFrame] -> Bool
 areTablesValid [] = True
 areTablesValid (x:xs)
-  | validateDataFrame x = areTablesValid xs
+  | Lib2.validateDataFrame x = areTablesValid xs
   | otherwise = False
 
 -----Stuff with cartesian products and dataframes----

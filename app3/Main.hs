@@ -80,6 +80,9 @@ runExecuteIO (Free step) = do
               fileContent <- readFile filePath
               return $ next $ Lib3.deserializedContent fileContent
             else return $ next $ Left $ "File '" ++ tableName ++ "' does not exist"
-
+        runStep (Lib3.SaveFile table next) = do
+          case Lib3.serializedContent table of
+            Right serializedContent -> writeFile (toFilePath (fst table)) serializedContent >>= return . next
+            Left err -> error err
 toFilePath :: String -> FilePath
 toFilePath tableName = "db"++ [pathSeparator] ++ tableName ++ ".json" --".txt"

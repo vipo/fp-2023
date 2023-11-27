@@ -107,4 +107,13 @@ main = hspec $ do
       Lib2.executeStatement Select {selectQuery = (SelectAggregate [(Max, "flag")]), table = "employees", selectWhere = Nothing } `shouldSatisfy` isLeft
     it "doesn't let to compare when condition is faulty" $ do
       Lib2.executeStatement Select {selectQuery = (SelectColumns [("id")]), table = "employees", selectWhere = Just [(Condition (ConstantOperand(StringValue "labas")) IsGreaterOrEqual (ConstantOperand (BoolValue True)))] } `shouldSatisfy` isLeft
-      
+  describe "Lib3.parseStatement" $ do
+    it "shows the right table stored in db" $ do
+      Lib3.parseStatement "show table employees;" `shouldBe` Right (ShowTable "employees") 
+    it "shows the list of tables which are stored in db" $ do
+      Lib3.parseStatement "show tables;" `shouldBe` Right ShowTables
+    it "does not show the content of multiple tables which do not exist in db" $ do
+      Lib3.parseStatement "select * from notExistingTable1, notExistingTable2 ;" `shouldSatisfy` isLeft
+    it "does not show the content of tables which is wanted to be deleted if it does not exist" $ do
+      Lib3.parseStatement "delete from notExistingTable1;" `shouldSatisfy` isLeft
+    

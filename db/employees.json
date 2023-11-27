@@ -1,11 +1,11 @@
 {
-    "table":"employees",
-    "columns":[
-        {"name":"id", "columnType":"IntegerType"},
-        {"name":"name", "columnType":"StringType"},
-        {"name":"surname", "columnType":"StringType"}],
-    "rows":[
-        [{"valueType":"IntegerValue","value":1}, {"valueType":"StringValue", "value":"Vi"}, {"valueType":"StringValue", "value":"Po"}],
-        [{"valueType":"IntegerValue","value":1}, {"valueType":"StringValue", "value":"Ed"}, {"valueType":"StringValue", "value":"Dl"}]
+    "Table":"employees",
+    "Columns":[
+        {"Name":"id", "ColumnType":"IntegerType"},
+        {"Name":"name", "ColumnType":"StringType"},
+        {"Name":"surname", "ColumnType":"StringType"}],
+    "Rows":[
+        {"Row":[{"Value":"IntegerValue 1"},{"Value":"StringValue Vi"},{"Value":"StringValue Po"}]},
+        {"Row":[{"Value":"IntegerValue 2"},{"Value":"StringValue Ed"},{"Value":"StringValue Dl"}]}
     ]
 }

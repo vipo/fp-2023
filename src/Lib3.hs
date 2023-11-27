@@ -30,7 +30,7 @@ import Control.Monad.Free (Free (..), liftF)
 import Data.Time
 import DataFrame as DF
 import Data.Either (fromRight)
-import Data.List (find, findIndex, elemIndex)
+import Data.List (find, findIndex, elemIndex, nub, elem)
 import Text.ParserCombinators.ReadP (many1, sepBy1)
 import GHC.Generics
 import GHC.Base (VecElem(DoubleElemRep))
@@ -208,9 +208,11 @@ getTables = liftF $ GetTables id
 executeSql :: String -> Execution (Either ErrorMessage DataFrame)
 executeSql sql = case parseStatement2 sql of
   Right (SelectAll tables selectWhere) -> do
-    let df = [DataFrame [Column "flag" StringType, Column "value" BoolType] [[StringValue "a", BoolValue True], [StringValue "b", BoolValue False]], DataFrame [Column "value" BoolType][[BoolValue True],[BoolValue True],[BoolValue False]]]
-    case executeSelectAll tables df selectWhere of
-      Right dfs -> return $ Right dfs
+    contents <- loadFromFiles tables
+    case contents of
+      Right tuples -> case executeSelectAll tables (snd $ switchListToTuple' tuples) selectWhere of
+        Right dfs -> return $ Right dfs
+        Left err -> return $ Left err
       Left err -> return $ Left err
   Left err -> return $ Left err
 
@@ -281,6 +283,30 @@ executeSql sql = case parseStatement2 sql of
   -- let df = executeShowTable (DataFrame [] []) "flags" --dataframe ideti is loadFile gauta
   -- return $ Right df
   
+--------------------------------------Load FILES-----------------------------------------
+
+loadFromFiles :: TableArray -> Execution (Either ErrorMessage [DeserializedContent])
+loadFromFiles tables = do
+    results <- traverse loadFile tables
+    return $ sequence results
+
+switchListToTuple' :: [(TableName, DataFrame)] -> (TableArray, [DataFrame])
+switchListToTuple' [] = ([], [])
+switchListToTuple' tuple = (getTNs tuple, getDFs tuple)
+
+getTNs :: [(TableName, DataFrame)] -> TableArray
+getTNs [] = []
+getTNs ((tn, df) : xs) = getTN (tn, df) ++ getTNs xs
+
+getTN :: (TableName, DataFrame) -> TableArray
+getTN (tn, _) = [tn]
+
+getDFs :: [(TableName, DataFrame)] -> [DataFrame]
+getDFs [] = []
+getDFs ((tn, df) : xs) = getDF (tn, df) ++ getDFs xs
+
+getDF :: (TableName, DataFrame) -> [DataFrame]
+getDF (_, df) = [df]
 
 ---------------------------------------some update stuff starts--------------------------
 
@@ -569,6 +595,7 @@ parseStatement2 query = case runParser p query of
                <|> selectNowParser
 
 --------------------------------------------------------------------------------
+-----------------Executes for show and select statements------------------------
 
 executeShowTable :: DataFrame -> TableName -> DataFrame
 executeShowTable df table = createColumnsDataFrame (columnsToList df) table
@@ -582,9 +609,15 @@ executeSelectAll tables selectedDfs whereSelect = case areTablesValid selectedDf
       Just conditions -> case isFaultyConditions conditions of
         False -> case doColumnsExistDFs (whereConditionColumnList conditions) selectedDfs of
           True -> case doColumnsExistProvidedDfs tables selectedDfs (whereConditionColumnList2 conditions) of
-            True -> Right $ deCartesianDataFrame $ createCartesianDataFrame selectedDfs tables
+            ---------------------------------kepam toliau nuo cia--------------------------------------------
+            --True -> Right $ deCartesianDataFrame $ createCartesianDataFrame selectedDfs tables  -- <- VEIKIA PATIKRINIMUI AR PAREINA DF VISI IR PASIDARO DEKARTAS
+            True -> case checkForMatchingColumns (getAllColumnsCartesianDF (createCartesianDataFrame selectedDfs tables)) (whereConditionColumnList conditions) of
+              True -> case areRowsEmpty (deCartesianDataFrame $ filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions) of
+                False -> Right $ deCartesianDataFrame $ filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions
+                True -> Left "There are no results with the provided conditions or the condition is faulty"
+              False -> Left "Some of provided column names are ambiguous"
             False -> Left "Some of provided columns do not exist in provided tables or expected table where not provided after 'from'"
-          False -> Left "Some of provided columns do not exist in provided tables or are ambiguous"
+          False -> Left "Some of provided columns do not exist in provided tables"
         True -> Left "Conditions are faulty"
       Nothing -> Right $ cartesianDataFrame selectedDfs
     False -> Left "Some of provided table(s) are not valid"
@@ -595,7 +628,7 @@ areTablesValid (x:xs)
   | Lib2.validateDataFrame x = areTablesValid xs
   | otherwise = False
 
------Stuff with cartesian products and dataframes----
+------------------Stuff with cartesian products and dataframes-----------------
 
 cartesianDataFrame :: [DataFrame] -> DataFrame
 cartesianDataFrame [] = DataFrame [] [] 
@@ -640,11 +673,11 @@ deCartesianColumns :: [CartesianColumn] -> [Column]
 deCartesianColumns [] = []
 deCartesianColumns ((CartesianColumn (_, col)):xs) = [col] ++ deCartesianColumns xs
 
------------------------------------------------------
-
 getNextDataFrame :: [a] -> Maybe a
 getNextDataFrame [] = Nothing
 getNextDataFrame (y:_) = Just y
+
+--------------------------------------------------------------------------------
 
 doColumnsExistDFs :: [ColumnName] -> [DataFrame] -> Bool
 doColumnsExistDFs _ [] = False
@@ -677,7 +710,73 @@ checkIfConditionsMatchesWithData _ [] _ = False
 checkIfConditionsMatchesWithData (table:tables) (df:dataFrames) (targetTable, targetColumn)
   | table == targetTable && doColumnsExist [targetColumn] df = True
   | otherwise = checkIfConditionsMatchesWithData tables dataFrames (targetTable, targetColumn)
+
+checkForMatchingColumns :: [ColumnName] -> [ColumnName] -> Bool
+checkForMatchingColumns _ [] = True
+checkForMatchingColumns columns (x:xs) 
+  | checkForMoreThanOne columns x 0 < 2 = checkForMatchingColumns columns xs
+  | otherwise = False
+
+checkForMoreThanOne :: [ColumnName] -> ColumnName -> Int -> Int
+checkForMoreThanOne [] _ i = i
+checkForMoreThanOne (x:xs) column i =
+  if x == column
+    then checkForMoreThanOne xs column (i + 1)
+    else checkForMoreThanOne xs column i
+
+getAllColumnsCartesianDF :: CartesianDataFrame -> [ColumnName]
+getAllColumnsCartesianDF (CartesianDataFrame cols _) = getAllColumnNamesCartesianDF $ getColumnListFromCartesianDF cols
+
+getAllColumnNamesCartesianDF :: [Column] -> [ColumnName]
+getAllColumnNamesCartesianDF [] = []
+getAllColumnNamesCartesianDF ((Column name _):xs) = [name] ++ getAllColumnNamesCartesianDF xs
+
+------------------------------filter selectAll----------------------------------
+
+filterSelectAll :: CartesianDataFrame -> [Condition] -> CartesianDataFrame
+filterSelectAll df [] = df
+filterSelectAll (CartesianDataFrame colsOg rowsOg) (x:xs) = filterSelectAll (CartesianDataFrame colsOg $ filterConditionAll colsOg rowsOg x) xs
+
+filterConditionAll :: [CartesianColumn] -> [Row] -> Condition -> [Row]
+filterConditionAll _ [] _ = []
+filterConditionAll cartesianColumns (x:xs) condition = 
+  if conditionResultAll cartesianColumns x condition
+    then [x] ++ filterConditionAll cartesianColumns xs condition
+    else filterConditionAll cartesianColumns xs condition
+
+conditionResultAll :: [CartesianColumn] -> Row -> Condition -> Bool
+conditionResultAll cartesianColumns row (Condition op1 operator op2) =
+  let v1 = getFilteredValueAll op1 cartesianColumns row
+      v2 = getFilteredValueAll op2 cartesianColumns row
+  in
+    case operator of
+    IsEqualTo -> v1 == v2
+    IsNotEqual -> v1 /= v2
+    IsLessThan -> v1 < v2
+    IsGreaterThan -> v1 > v2
+    IsLessOrEqual -> v1 <= v2
+    IsGreaterOrEqual -> v1 >= v2
+
+getFilteredValueAll :: Operand -> [CartesianColumn] -> Row -> DF.Value
+getFilteredValueAll (ConstantOperand value) _ _ = value
+getFilteredValueAll (ColumnOperand columnName) cartesianColumns row = getValueFromRow row (findColumnIndex columnName $ getColumnListFromCartesianDF cartesianColumns) 0
+getFilteredValueAll (ColumnTableOperand (table, columnName)) cartesianColumns row = getValueFromRow row (findColumnTableIndex columnName table cartesianColumns) 0
+
+findColumnTableIndex :: ColumnName -> TableName -> [CartesianColumn] -> Int
+findColumnTableIndex columnName tableName columns = columnTableIndex columnName tableName columns 0
+
+columnTableIndex :: ColumnName -> TableName -> [CartesianColumn] -> Int -> Int
+columnTableIndex _ _ [] _ = -1
+columnTableIndex columnName tableName ((CartesianColumn (table, (Column name _))):xs) index
+    | columnName /= name || tableName /= table = (columnTableIndex columnName tableName xs (index + 1))
+    | otherwise = index
+
+getColumnListFromCartesianDF :: [CartesianColumn] -> [Column]
+getColumnListFromCartesianDF [] = []
+getColumnListFromCartesianDF ((CartesianColumn (table, column)):xs) = [column] ++ getColumnListFromCartesianDF xs
+
 --------------------------------------------------------------------------------
+------------------------------THE parsers---------------------------------------
 
 selectNowParser :: Parser ParsedStatement2
 selectNowParser = do
@@ -777,7 +876,6 @@ setParser = do
   _ <- queryStatementParser "set"
   _ <- whitespaceParser
   seperate whereConditionParser (optional whitespaceParser >> char ',' >> optional whitespaceParser)
-
 
 ----Lib2 stuff----
 selectAllParser :: Parser ParsedStatement2

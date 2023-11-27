@@ -78,7 +78,8 @@ module Lib2
     findColumnIndex,
     columnsToList,
     createColumnsDataFrame,
-    createTablesDataFrame
+    createTablesDataFrame,
+    getValueFromRow
   )
 where
 
@@ -385,7 +386,8 @@ conditionResult cols row (Condition op1 operator op2) =
 getFilteredValue :: Operand -> [Column] -> Row -> Value
 getFilteredValue (ConstantOperand value) _ _ = value
 getFilteredValue (ColumnOperand columnName) columns row = getValueFromRow row (findColumnIndex columnName columns) 0
-getFilteredValue (ColumnTableOperand (_, columnName)) columns row = getValueFromRow row (findColumnIndex columnName columns) 0
+--reikia padaryt kad imtu ir pagal table name atsektu columnindexa
+--getFilteredValue (ColumnTableOperand (_, columnName)) columns row = getValueFromRow row (findColumnIndex columnName columns) 0
 
 processSelect :: DataFrame -> AggregateList -> Either ErrorMessage ([Column],[Row])
 processSelect df aggList =

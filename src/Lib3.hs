@@ -12,6 +12,7 @@
 {-# OPTIONS_GHC -Wno-overlapping-patterns #-}
 {-# HLINT ignore "Redundant pure" #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# HLINT ignore "Use if" #-}
 
 module Lib3
   ( executeSql,
@@ -80,7 +81,7 @@ data FromJSONColumn = FromJSONColumn {
 } deriving (Show, Eq, Generic)
 
 data FromJSONValue = FromJSONValue {
-    deserializedValue :: String              --------------------------------------------------------susitvarkyt gavus info su situo
+    deserializedValue :: String  
 } deriving (Show, Eq, Generic)
 
 data FromJSONRow = FromJSONRow {
@@ -283,29 +284,51 @@ executeSql sql = case parseStatement2 sql of
 
 ---------------------------------------some update stuff starts--------------------------
 
-filterConditionVol2 :: [Column] -> [Row] -> Condition -> [Condition] -> [Row]
-filterConditionVol2 _ [] _ _ = []
+
+filterConditionVol2 :: [Column] -> [Row] -> Condition -> [Condition] -> Either ErrorMessage [Row]
+filterConditionVol2 _ [] _ _ = Right [] 
 filterConditionVol2 columns (x:xs) condition selectUpdate =
   if conditionResult columns x condition
-    then [changeByRequest columns x selectUpdate] ++ filterConditionVol2 columns xs condition selectUpdate
-    else [x] ++ filterConditionVol2 columns xs condition selectUpdate
+    then case changeByRequest columns x selectUpdate of
+           Right newRow -> (newRow :) <$> filterConditionVol2 columns xs condition selectUpdate
+           Left err -> Left err
+    else (x :) <$> filterConditionVol2 columns xs condition selectUpdate
 
-changeByRequest :: [Column] -> Row -> [Condition] -> Row
-changeByRequest df row [] = row
+changeByRequest :: [Column] -> Row -> [Condition] -> Either ErrorMessage Row
+changeByRequest df row [] = Right row
 changeByRequest columns row (condition:conditions) =
-  changeByRequest columns (forOneCondition columns row condition) conditions
+  case forOneCondition columns row condition of
+    Right newRow -> changeByRequest columns newRow conditions
+    Left err -> Left err
 
-forOneCondition :: [Column] -> Row -> Condition -> Row
+
+forOneCondition :: [Column] -> Row -> Condition -> Either ErrorMessage Row
 forOneCondition columns row condition = do
   let conditions = whereConditionColumnName condition
   let values = whereConditionValues condition
-  (if hasTwoColumnNames conditions then row else if hasTwoValues values then row else changeByRequestForOne columns row conditions values)
+  (if hasTwoColumnNames conditions 
+    then changeByRequestTwoColumns columns row conditions values
+    else if hasTwoValues values 
+      then Left "The conditions are not valid"
+        else changeByRequestForOne columns row conditions values)
 
-changeByRequestForOne :: [Column] -> [DF.Value] -> [ColumnName] -> [DF.Value] -> [DF.Value]
+changeByRequestTwoColumns :: [Column] -> [DF.Value] -> [ColumnName] -> [DF.Value] -> Either ErrorMessage [DF.Value]
+changeByRequestTwoColumns columns row setColumn setValue = do
+  let index1 = findColumnIndex (head setColumn) columns
+  let index2 = findColumnIndex (last setColumn) columns
+  let foundElem = row !! index2
+  let newRow = replaceNth index1 foundElem row
+  case newRow of 
+    _ -> Right newRow
+    [] -> Left "Sorry"
+
+changeByRequestForOne :: [Column] -> [DF.Value] -> [ColumnName] -> [DF.Value] -> Either ErrorMessage [DF.Value]
 changeByRequestForOne columns row setColumn setValue = do
   let index = findColumnIndex (head setColumn) columns
   let newRow = replaceNth index (head setValue) row
-  newRow
+  case newRow of 
+    _ -> Right newRow
+    [] -> Left "Sorry"
 
 replaceNth :: Int -> DF.Value -> [DF.Value] -> [DF.Value]
 replaceNth _ _ [] = []
@@ -329,25 +352,36 @@ hasTwoValues values = length values == 2
 hasTwoColumnNames :: [ColumnName] -> Bool
 hasTwoColumnNames columnNames = length columnNames == 2
 
-
 filterSelectVol2 :: DataFrame -> [Condition] -> [Condition] -> Either ErrorMessage DataFrame
 filterSelectVol2 df [] _ = Right df
-filterSelectVol2 (DataFrame colsOg rowsOg) selectUpdate (x:xs) =
-  filterSelectVol2 (DataFrame colsOg $ filterConditionVol2 colsOg rowsOg x selectUpdate) xs selectUpdate
-filterSelectVol2 _ _ _ = Left "Error"
+filterSelectVol2 df@(DataFrame colsOg rowsOg) selectUpdate wh@(x:xs) = do
+  let columns = whereConditionColumnList selectUpdate
+  let columnsAlso = whereConditionColumnList wh
+  case doColumnsExist columns df && doColumnsExist columnsAlso df of
+    True -> do
+      filteredRows <- filterConditionVol2 colsOg rowsOg x selectUpdate
+      filterSelectVol2 (DataFrame colsOg filteredRows) xs selectUpdate
+    False -> Left "The provided columns do not exist in this table"
 
 
 ---------------------------------------some update stuff ends----------------------------
 
 ---------------------------------------some insert stuff starts----------------------------
 
+
+getColumnNamesVol2 :: SelectedColumns -> [ColumnName]
+getColumnNamesVol2 (ColumnsSelected columns) = columns
+
 insertColumnsProvided :: DeserializedContent -> SelectedColumns -> InsertedValues -> Execution (Either ErrorMessage DataFrame)
 insertColumnsProvided deserializedContent justColumns values =
-  if insertCheckCounts justColumns values then (case insertColumnsProvidedDeserializedContent deserializedContent justColumns values of
-    Left errMsg -> return $ Left errMsg
-    Right updatedDataFrame -> do
-      saveFile (fst deserializedContent, updatedDataFrame)
-      return (Right updatedDataFrame)) else return $ Left "Behold! I, your sovereign, detect errors in thy counts of values and columns. Attend swiftly, rectify this ledger amiss, for accuracy befits our royal domain."
+  case doColumnsExist (getColumnNamesVol2 justColumns) (snd deserializedContent) of 
+    True -> 
+      if insertCheckCounts justColumns values then (case insertColumnsProvidedDeserializedContent deserializedContent justColumns values of
+        Left errMsg -> return $ Left errMsg
+        Right updatedDataFrame -> do 
+          saveFile (fst deserializedContent, updatedDataFrame)
+          return (Right updatedDataFrame)) else return $ Left "Behold! I, your sovereign, detect errors in thy counts of values and columns. Attend swiftly, rectify this ledger amiss, for accuracy befits our royal domain."
+    False -> return $ Left "The provided columns do not exist in the table"
 
 insertColumnsProvidedDeserializedContent :: DeserializedContent -> SelectedColumns -> InsertedValues -> Either ErrorMessage DataFrame
 insertColumnsProvidedDeserializedContent (tableName, DataFrame columns rows) changedColumns newValues =
@@ -676,8 +710,8 @@ selectDataParsers = tryParseColumn
 
 insertedValuesParser :: Parser InsertedValues
 insertedValuesParser = do
-  values <- seperate valueParser (queryStatementParser "," >> whitespaceParser)
-  return $ trace ("Parsed values: " ++ show values) values
+  values <- seperate valueParser (queryStatementParser "," >> optional whitespaceParser)
+  return values
 
 valueParser :: Parser DF.Value
 valueParser = parseNullValue <|> parseBoolValue <|> parseStringValue <|> parseNumericValue
@@ -726,8 +760,6 @@ updateParser = do
     _ <- whitespaceParser
     tableName <- columnNameParser
     selectUpdated <- setParser
-    let selectUpdatedMsg = "Select Updated: " ++ show selectUpdated
-    trace selectUpdatedMsg $ pure ()
     selectedWhere <- optional whereParser
     pure $ Update tableName selectUpdated selectedWhere
 

@@ -17,6 +17,8 @@ module Lib2
     Condition (..),
     WhereSelect,
     validateDataFrame,
+    aggregateFunctionParser,
+    columnNameParser'',
     parseStatement,
     Parser,
     getColumnName,
@@ -885,3 +887,7 @@ stopParseAt  = do
         case query of
             [] -> Right ([], [])
             s -> Left ("Characters found after ;" ++ s)
+----------------------------------------------------
+columnNameParser'' :: Parser ColumnName
+columnNameParser'' = Parser $ \query ->
+  (if areSpacesBetweenWords (fst (splitStatementAtParentheses query)) then Right (dropWhiteSpaces (fst (splitStatementAtParentheses query)), snd (splitStatementAtParentheses query)) else Left "There is more than one column name in aggregation function")

@@ -621,7 +621,7 @@ executeSelectAll tables selectedDfs whereSelect = case areTablesValid selectedDf
           False -> Left "Some of provided columns do not exist in provided tables"
         True -> Left "Conditions are faulty"
       Nothing -> Right $ cartesianDataFrame selectedDfs
-    False -> Left "Some of provided table(s) are not valid"
+    False -> Left "Some of provided tables are not valid"
 
 executeSelectWithAllSauces :: SpecialSelect2 -> TableArray -> [DataFrame] -> Maybe WhereSelect -> Either ErrorMessage DataFrame
 executeSelectWithAllSauces specialSelect tables selectedDfs whereSelect = case specialSelect of
@@ -642,9 +642,10 @@ executeSelectWithAllSauces specialSelect tables selectedDfs whereSelect = case s
               False -> Left "Some of provided columns do not exist in provided tables"
             True -> Left "Conditions are faulty"
           Nothing -> Right $  uncurry createSelectDataFrame$ getColumnsRows specialColumns (deCartesianDataFrame $ createCartesianDataFrame selectedDfs tables)
-        False -> Left "Some of provided table(s) are not valid"
+        False -> Left "Some of provided tables are not valid"
       False -> Left "Some of provided column names are ambiguous"
     False -> Left "Some of provided columns do not exist in provided tables"
+
   SelectedColumnsTables specialColumns -> case doColumnsExistProvidedDfs tables selectedDfs specialColumns of
     True -> case areTablesValid selectedDfs of
       True -> case whereSelect of
@@ -662,17 +663,100 @@ executeSelectWithAllSauces specialSelect tables selectedDfs whereSelect = case s
                               (deCartesianColumns $ fst $ getColumnsTablesList specialColumns (createCartesianDataFrame selectedDfs tables), snd $ getColumnsTablesList specialColumns (createCartesianDataFrame selectedDfs tables))
       False -> Left "Some of provided table(s) are not valid"
     False -> Left "Some of provided columns do not exist in provided tables"
-  SelectAggregate2 aggregatesList -> case aggregatesList /= [] of
-    True -> Left "atejau i vykdyma"
-    False -> Left "oops"
 
+  SelectAggregate2 aggregatesList -> case areTablesValid selectedDfs of
+    True -> case doColumnsExistDFs (getColumnsFromAggregates aggregatesList) selectedDfs of
+      True -> case checkForMatchingColumns (getAllColumnsCartesianDF (createCartesianDataFrame selectedDfs tables)) (getColumnsFromAggregates aggregatesList)of
+        True -> case doColumnsExistProvidedDfs tables selectedDfs (getColumnsTablesAggregatesList $ getColumnsTablesAggregates aggregatesList) of
+          True -> case whereSelect of
+            Just conditions -> case isFaultyConditions conditions of
+              False -> case doColumnsExistDFs (whereConditionColumnList conditions) selectedDfs of
+                True -> case doColumnsExistProvidedDfs tables selectedDfs (whereConditionColumnList2 conditions) of
+                  True -> case areRowsEmpty (deCartesianDataFrame $ filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions) of
+                    False -> case processSelect2 (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions) aggregatesList of
+                      Right (cols, rows) -> case null cols of
+                        True -> case processSelect2' (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions) aggregatesList of
+                          Right (cols2, rows2) -> case null cols2 of
+                            True -> Left "There are no results"
+                            False -> Right $ createSelectDataFrame cols2 [rows2]
+                          Left err -> Left err
+                        False -> case processSelect2' (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions) aggregatesList of
+                          Right (cols2, rows2) -> case null cols2 of
+                            True -> Right $ createSelectDataFrame cols [rows]
+                            False -> Right $ createSelectDataFrame (cols ++ cols2) [rows ++ rows2]
+                          Left err -> Left err
+                      Left err -> Left err
+                    True -> Left "There are no results with the provided conditions or the condition is faulty"
+                  False -> Left "Some of provided column names are ambiguous"
+                False -> Left "Some of provided columns do not exist in provided tables"
+              True -> Left "Conditions are faulty"
+            Nothing -> case processSelect2 (createCartesianDataFrame selectedDfs tables) aggregatesList of
+              Right (cols, rows) -> case null cols of
+                True -> case processSelect2' (createCartesianDataFrame selectedDfs tables) aggregatesList of
+                  Right (cols2, rows2) -> case null cols2 of
+                    True -> Left "There are no results"
+                    False -> Right $ createSelectDataFrame cols2 [rows2]
+                  Left err -> Left err
+                False -> case processSelect2' (createCartesianDataFrame selectedDfs tables) aggregatesList of
+                  Right (cols2, rows2) -> case null cols2 of
+                    True -> Right $ createSelectDataFrame cols [rows]
+                    False -> Right $ createSelectDataFrame (cols ++ cols2) [rows ++ rows2]
+                  Left err -> Left err
+              Left err -> Left err
+          False -> Left "Some of provided columns in aggregate functions do not exist in provided tables"
+        False -> Left "Some of provided columns in aggregate functions are ambiguous" 
+      False -> Left "Some of provided columns in aggregate functions do not exist in provided tables" 
+    False -> Left "Some of provided table(s) are not valid"
 
 areTablesValid :: [DataFrame] -> Bool
 areTablesValid [] = True
 areTablesValid (x:xs)
   | Lib2.validateDataFrame x = areTablesValid xs
   | otherwise = False
+-----------------------------------su columns:----------------------------------
+processSelect2 :: CartesianDataFrame -> [Aggregate2] -> Either ErrorMessage ([Column],Row)--[DF.Value]
+processSelect2 cdf aggregateList =
+  case processSelectAggregates (deCartesianDataFrame cdf) (getColumnsAggregates aggregateList) of 
+    Right tuples -> Right (fst (switchListToTuple tuples), head $ snd (switchListToTuple tuples))
+    Left err -> Left err
+-----------------------su columns ir ju tables:---------------------------------
+processSelect2' :: CartesianDataFrame -> [Aggregate2] -> Either ErrorMessage ([Column],Row)--[DF.Value]
+processSelect2' cdf aggregateList =
+  case processSelectAggregates' cdf (getColumnsTablesAggregates aggregateList) of 
+    Right tuple -> Right (fst (switchListToTuple tuple), head $ snd (switchListToTuple tuple))
+    Left err -> Left err
 
+processSelectAggregates' :: CartesianDataFrame -> [(AggregateFunction, (TableName, ColumnName))] -> Either ErrorMessage [(Column, Row)]
+processSelectAggregates' _ [] = Right []
+processSelectAggregates' (CartesianDataFrame cc rows) ((func,(tableName, columnName)):xs) =
+  case func of
+    Max -> do
+      let maxResult = findMax $ rowListToRow (getCartesianRows cc rows [(tableName,columnName)])
+      restResult <- processSelectAggregates' (CartesianDataFrame cc rows) xs
+      let newColumn = Column ("Max "++ tableName ++ "." ++ columnName) (head $ getColumnTablesType [columnName] tableName cc)
+      return $ (newColumn, fromRight [] maxResult) : restResult
+    Sum -> do
+      case (head $ getColumnTablesType [columnName] tableName cc) == IntegerType of
+        True -> do
+          let sumResult = findSum $ rowListToRow (getCartesianRows cc rows [(tableName,columnName)])
+          restResult <- processSelectAggregates' (CartesianDataFrame cc rows) xs
+          let newColumn = Column ("Sum "++ tableName ++ "." ++columnName) (head $ getColumnTablesType [columnName] tableName cc)
+          return $ (newColumn, fromRight [] sumResult) : restResult
+        False -> Left "Selected column should have integers"
+
+getColumnTablesType :: [ColumnName] -> TableName -> [CartesianColumn] -> [ColumnType]
+getColumnTablesType [] _ _ = []
+getColumnTablesType (x:xs) table col = columnTableType col 0 (findColumnTableIndex x table col) : getColumnTablesType xs table col
+
+columnTableType :: [CartesianColumn] -> Int -> Int -> ColumnType
+columnTableType (x:xs) i colIndex
+  | i == colIndex = getColumnTableType x
+  | otherwise = columnTableType xs (i+1) colIndex
+
+getColumnTableType :: CartesianColumn -> ColumnType
+getColumnTableType (CartesianColumn (_, Column _ colType)) = colType
+
+--------------------------------------------------------------------------------
 getConcatColumnsRows :: ([Column], [Row]) -> ([Column], [Row]) -> ([Column], [Row])
 getConcatColumnsRows (col1, row1) (col2, row2) = (col1++col2, getConcatRows row1 row2)
 
@@ -703,6 +787,10 @@ getColumnsTablesAggregates (x:xs) =
   case x of
     AggregateColumnTable a -> a : getColumnsTablesAggregates xs
     AggregateColumn _ -> getColumnsTablesAggregates xs
+
+getColumnsTablesAggregatesList :: [(AggregateFunction, (TableName, ColumnName))] -> [(TableName, ColumnName)]
+getColumnsTablesAggregatesList [] = []
+getColumnsTablesAggregatesList ((_,(tn, cn)):xs) = (tn, cn) : getColumnsTablesAggregatesList xs 
 
 -- getSelectedColumnsTables :: [SelectedSpecialColumns] -> [(TableName, ColumnName)]
 -- getSelectedColumnsTables [] = []
@@ -1026,7 +1114,7 @@ selectDataParser = tryParseAggregate <|>  tryParseColumn <|> tryParseColumnTable
       return $ SelectedColumnsTables columnsWithTables
 
 aggregateParser' :: Parser Aggregate2
-aggregateParser' = tryColumns <|> tryColumnTables
+aggregateParser' = tryColumnTables <|> tryColumns
   where 
     tryColumns = do
       func <- aggregateFunctionParser

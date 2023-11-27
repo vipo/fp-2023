@@ -680,12 +680,29 @@ getConcatRows :: [Row] -> [Row] -> [Row]
 getConcatRows [] [] = []
 getConcatRows (x:xs) (y:ys) = [x ++ y] ++ getConcatRows xs ys
 
--- getSelectedColumns :: [SelectedSpecialColumns] -> [ColumnName]
--- getSelectedColumns [] = []
--- getSelectedColumns (x:xs) =
---   case x of
---     SelectColumn2 columnName -> columnName : getSelectedColumns xs
---     SelectedColumnsTables _ -> getSelectedColumns xs
+--patikrinimui ar ne ambiguous
+getColumnsFromAggregates :: [Aggregate2] -> [ColumnName]
+getColumnsFromAggregates [] = []
+getColumnsFromAggregates (x:xs) =
+  case x of
+    AggregateColumn (_, columnName) -> columnName : getColumnsFromAggregates xs
+    AggregateColumnTable _ -> getColumnsFromAggregates xs
+
+--kist i processSelectAggregates is Lib2
+getColumnsAggregates :: [Aggregate2] -> [(AggregateFunction, ColumnName)]
+getColumnsAggregates [] = []
+getColumnsAggregates (x:xs) =
+  case x of
+    AggregateColumn a -> a : getColumnsAggregates xs
+    AggregateColumnTable _ -> getColumnsAggregates xs
+
+--sita iskviesti processSelect funkcijoje, pasiusti i dar viena padaryta processSelectAggregates kur paimtu [(AggregateFunction, (TableName, ColumnName))]
+getColumnsTablesAggregates :: [Aggregate2] -> [(AggregateFunction, (TableName, ColumnName))]
+getColumnsTablesAggregates [] = []
+getColumnsTablesAggregates (x:xs) =
+  case x of
+    AggregateColumnTable a -> a : getColumnsTablesAggregates xs
+    AggregateColumn _ -> getColumnsTablesAggregates xs
 
 -- getSelectedColumnsTables :: [SelectedSpecialColumns] -> [(TableName, ColumnName)]
 -- getSelectedColumnsTables [] = []

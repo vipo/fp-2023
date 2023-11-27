@@ -522,6 +522,7 @@ toJSONRow (x:xs)
   |otherwise = toJSONRowValue x
 
 toJSONRows :: [Row] -> String
+toJSONRows [] = []
 toJSONRows (x:xs)
   |xs /= [] = "{\"Row\":[" ++ toJSONRow x ++ "]}," ++ toJSONRows xs
   |otherwise = "{\"Row\":[" ++ toJSONRow x ++ "]}" 
@@ -532,10 +533,17 @@ toJSONRows (x:xs)
 toFilePath :: TableName -> FilePath
 toFilePath tableName = "db/" ++ show (tableName) ++ ".json" --".txt"
 
-serializedContent ::(TableName, DataFrame) -> Either ErrorMessage FileContent 
-serializedContent table = do
-  _ <- Lib1.validateDataFrame (snd table) 
-  return (serializedTable table)
+serializedContent :: (TableName, DataFrame) -> Either ErrorMessage FileContent 
+serializedContent table = case checkRows table of 
+  True -> return (serializedTable table)
+  False -> do
+    _ <- Lib1.validateDataFrame (snd table) 
+    return (serializedTable table)
+
+checkRows :: (TableName, DataFrame) -> Bool
+checkRows (_, DataFrame _ rows) 
+  | rows == [] =  True
+  | otherwise = False
 
 serializedTable :: (TableName, DataFrame) -> FileContent 
 serializedTable table = (toJSONtable (table))

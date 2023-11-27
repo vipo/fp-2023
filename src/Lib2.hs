@@ -83,7 +83,10 @@ module Lib2
     columnsToList,
     createColumnsDataFrame,
     createTablesDataFrame,
-    getValueFromRow
+    getValueFromRow,
+    ParsedStatement(..),
+    parseStatement,
+    executeStatement
   )
 where
 

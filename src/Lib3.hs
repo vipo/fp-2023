@@ -207,7 +207,7 @@ getTables = liftF $ GetTables id
 
 executeSql :: String -> Execution (Either ErrorMessage DataFrame)
 executeSql sql = case parseStatement2 sql of
-  Right (SelectAll tables selectWhere) -> do
+  Right (Lib3.SelectAll tables selectWhere) -> do
     contents <- loadFromFiles tables
     case contents of
       Right tuples -> case executeSelectAll tables (snd $ switchListToTuple' tuples) selectWhere of
@@ -216,7 +216,7 @@ executeSql sql = case parseStatement2 sql of
       Left err -> return $ Left err
   Left err -> return $ Left err
 
-  Right (ShowTable table) -> do
+  Right (Lib3.ShowTable table) -> do
     content <- loadFile table
     case content of 
       Left err -> return $ Left err
@@ -266,7 +266,7 @@ executeSql sql = case parseStatement2 sql of
     let df = createNowDataFrame (uTCToString da)
     return $ Right df
 
-  Right ShowTables -> do 
+  Right Lib3.ShowTables -> do 
     files <- getTables
     let df = executeShowTables files
     return $ Right df
@@ -559,16 +559,16 @@ parseStatement2 :: String -> Either ErrorMessage ParsedStatement2
 parseStatement2 query = case runParser p query of
     Left err1 -> Left err1
     Right (query, rest) -> case query of
-        Select _ _ _ -> case runParser stopParseAt rest of
+        Lib3.Select _ _ _ -> case runParser stopParseAt rest of
           Left err2 -> Left err2
           Right _ -> Right query
-        ShowTable _ -> case runParser stopParseAt rest of
+        Lib3.ShowTable _ -> case runParser stopParseAt rest of
           Left err2 -> Left err2
           Right _ -> Right query
-        ShowTables -> case runParser stopParseAt rest of
+        Lib3.ShowTables -> case runParser stopParseAt rest of
           Left err2 -> Left err2
           Right _ -> Right query
-        SelectAll _ _ -> case runParser stopParseAt rest of
+        Lib3.SelectAll _ _ -> case runParser stopParseAt rest of
           Left err2 -> Left err2
           Right _ -> Right query
         Insert _ _ _ -> case runParser stopParseAt rest of
@@ -889,7 +889,7 @@ selectAllParser = do
   tableArray <- selectTablesParser
   selectWhere <- optional whereParser
   _ <- optional whitespaceParser
-  pure $ SelectAll tableArray selectWhere
+  pure $ Lib3.SelectAll tableArray selectWhere
 
 selectStatementParser :: Parser ParsedStatement2
 selectStatementParser = do
@@ -903,7 +903,7 @@ selectStatementParser = do
     _ <- optional whitespaceParser
     selectWhere <- optional whereParser
     _ <- optional whitespaceParser
-    pure $ Select specialSelect tableArray selectWhere
+    pure $ Lib3.Select specialSelect tableArray selectWhere
 
 selectDataParser :: Parser SpecialSelect
 selectDataParser = tryParseAggregate <|> tryParseColumn <|> tryParseColumnTable
@@ -974,7 +974,7 @@ showTablesParser = do
     _ <- whitespaceParser
     _ <- queryStatementParser "tables"
     _ <- optional whitespaceParser
-    pure ShowTables
+    pure Lib3.ShowTables
 
 -----------------------------------------------------------------------------------------------------------
 
@@ -986,5 +986,5 @@ showTableParser = do
     _ <- whitespaceParser
     table <- columnNameParser
     _ <- optional whitespaceParser
-    pure $ ShowTable table
+    pure $ Lib3.ShowTable table
     

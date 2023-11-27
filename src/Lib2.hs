@@ -17,6 +17,8 @@ module Lib2
     Condition (..),
     WhereSelect,
     validateDataFrame,
+    aggregateFunctionParser,
+    columnNameParser'',
     parseStatement,
     Parser,
     getColumnName,
@@ -44,6 +46,7 @@ module Lib2
     isFaultyConditions,
     isFaultyCondition,
     doColumnsExist,
+    getColumnType,
     areRowsEmpty,
     whereConditionColumnList,
     whereConditionColumnName,
@@ -74,6 +77,7 @@ module Lib2
     parseSatisfy,
     doColumnsExist, 
     createSelectDataFrame,
+    processSelectAggregates,
     getColumnsRows,
     findColumnIndex,
     columnsToList,
@@ -120,7 +124,7 @@ data AggregateFunction = Sum | Max
 data And = And
   deriving (Show, Eq)
 
-data SpecialSelect = SelectAggregate AggregateList | SelectColumns [ColumnName] | SelectColumnsTables [(TableName, ColumnName)]
+data SpecialSelect = SelectAggregate AggregateList | SelectColumns [ColumnName]
   deriving (Show, Eq)
 
 type AggregateList = [(AggregateFunction, ColumnName)]
@@ -389,8 +393,6 @@ conditionResult cols row (Condition op1 operator op2) =
 getFilteredValue :: Operand -> [Column] -> Row -> Value
 getFilteredValue (ConstantOperand value) _ _ = value
 getFilteredValue (ColumnOperand columnName) columns row = getValueFromRow row (findColumnIndex columnName columns) 0
---reikia padaryt kad imtu ir pagal table name atsektu columnindexa
---getFilteredValue (ColumnTableOperand (_, columnName)) columns row = getValueFromRow row (findColumnIndex columnName columns) 0
 
 processSelect :: DataFrame -> AggregateList -> Either ErrorMessage ([Column],[Row])
 processSelect df aggList =
@@ -888,3 +890,7 @@ stopParseAt  = do
         case query of
             [] -> Right ([], [])
             s -> Left ("Characters found after ;" ++ s)
+----------------------------------------------------
+columnNameParser'' :: Parser ColumnName
+columnNameParser'' = Parser $ \query ->
+  (if areSpacesBetweenWords (fst (splitStatementAtParentheses query)) then Right (dropWhiteSpaces (fst (splitStatementAtParentheses query)), snd (splitStatementAtParentheses query)) else Left "There is more than one column name in aggregation function")

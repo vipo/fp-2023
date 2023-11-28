@@ -126,8 +126,10 @@ main = hspec $ do
       Lib3.parseStatement2 "show table ;" `shouldSatisfy` isLeft
     it "Parses correct delete statement without conditions" $ do
       Lib3.parseStatement2 "delete from flags;" `shouldBe` Right (Lib3.Delete {Lib3.table = "flags",Lib3.conditions =  Nothing})
-    it "Parses correct delete statement with conditions" $ do
+    it "Parses correct delete statement with condition" $ do
       Lib3.parseStatement2 "delete from flags where flag = 'b';" `shouldBe` Right Lib3.Delete {Lib3.table = "flags", Lib3.conditions = Just [Condition (ColumnOperand "flag") IsEqualTo  (ConstantOperand (StringValue "b"))]}
+    it "Parses correct delete statement with multiple conditions" $ do
+      Lib3.parseStatement2 "delete from flags where flag = 'b' and id = 1;" `shouldBe` Right Lib3.Delete {Lib3.table = "flags", Lib3.conditions = Just [Condition (ColumnOperand "flag") IsEqualTo  (ConstantOperand (StringValue "b")) , Condition (ColumnOperand "id") IsEqualTo  (ConstantOperand (IntegerValue 1))]}
     it "Parses correct insert statement without specified columns " $ do
       Lib3.parseStatement2 "insert into flags values (3, 'c', true);" `shouldBe` Right Lib3.Insert {Lib3.table = "flags", Lib3.columns = Nothing, Lib3.values = [IntegerValue 3, StringValue "c", BoolValue True]}
     it "Parses correct insert statement with one specified columns" $ do
@@ -142,10 +144,10 @@ main = hspec $ do
       Lib3.parseStatement2 "update flags set flag = 'a';" `shouldBe` Right Lib3.Update {Lib3.table = "flags", Lib3.selectUpdate = [Condition (ColumnOperand "flag") IsEqualTo  (ConstantOperand (StringValue "a"))], Lib3.selectWhere = Nothing}
     it "Fails to parse update statement without table name" $ do
       Lib3.parseStatement2 "update  set flag = 'a';" `shouldSatisfy` isLeft
-    it "Parses update statement with conditions" $ do
+    it "Parses update statement with condition" $ do
       Lib3.parseStatement2 "update flags set flag = 'a' where flag = 'b';" `shouldBe` Right Lib3.Update {Lib3.table = "flags", Lib3.selectUpdate = [Condition (ColumnOperand "flag") IsEqualTo  (ConstantOperand (StringValue "a"))], Lib3.selectWhere = Just [Condition (ColumnOperand "flag") IsEqualTo  (ConstantOperand (StringValue "b"))]}
     it "Parses update statement with multiple conditions" $ do
-      Lib3.parseStatement2 "update flags set flag = 'a' where flag = 'b' and value = 2;" `shouldBe` Right Lib3.Update {Lib3.table = "flags", Lib3.selectUpdate = [Condition (ColumnOperand "flag") IsEqualTo  (ConstantOperand (StringValue "a"))], Lib3.selectWhere = Just [Condition (ColumnOperand "flag") IsEqualTo  (ConstantOperand (StringValue "b")),Condition (ColumnOperand "value") IsEqualTo  (ConstantOperand (IntegerValue 2))]}
+      Lib3.parseStatement2 "update flags set flag = 'a' where flag = 'b' and id = 2;" `shouldBe` Right Lib3.Update {Lib3.table = "flags", Lib3.selectUpdate = [Condition (ColumnOperand "flag") IsEqualTo  (ConstantOperand (StringValue "a"))], Lib3.selectWhere = Just [Condition (ColumnOperand "flag") IsEqualTo  (ConstantOperand (StringValue "b")),Condition (ColumnOperand "id") IsEqualTo  (ConstantOperand (IntegerValue 2))]}
   describe "Lib3.deserializedContent" $ do
     it "parses valid tables" $ do
       Lib3.deserializedContent  "{\

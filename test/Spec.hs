@@ -117,6 +117,35 @@ main = hspec $ do
       Lib2.executeStatement Lib2.Select {Lib2.selectQuery = SelectAggregate [(Max, "flag")], Lib2.table = "employees", Lib2.selectWhere = Nothing } `shouldSatisfy` isLeft
     it "doesn't let to compare when condition is faulty" $ do
       Lib2.executeStatement Lib2.Select {Lib2.selectQuery = SelectColumns ["id"], Lib2.table = "employees", Lib2.selectWhere = Just [Condition (ConstantOperand (StringValue "labas")) IsGreaterOrEqual (ConstantOperand (BoolValue True))] } `shouldSatisfy` isLeft
+  describe "Lib3.parseStatement" $ do
+    it "Parses show table statement " $ do
+      Lib3.parseStatement2 "show table employees;" `shouldBe` Right (Lib3.ShowTable "employees") 
+    it "Parses show tables statement " $ do
+      Lib3.parseStatement2 "show tables;" `shouldBe` Right Lib3.ShowTables
+    it "Fails to parse show table statement without table name" $ do
+      Lib3.parseStatement2 "show table ;" `shouldSatisfy` isLeft
+    it "Parses correct delete statement without conditions" $ do
+      Lib3.parseStatement2 "delete from flags;" `shouldBe` Right (Lib3.Delete {Lib3.table = "flags",Lib3.conditions =  Nothing})
+    it "Parses correct delete statement with conditions" $ do
+      Lib3.parseStatement2 "delete from flags where flag = 'b';" `shouldBe` Right Lib3.Delete {Lib3.table = "flags", Lib3.conditions = Just [Condition (ColumnOperand "flag") IsEqualTo  (ConstantOperand (StringValue "b"))]}
+    it "Parses correct insert statement without specified columns " $ do
+      Lib3.parseStatement2 "insert into flags values (3, 'c', true);" `shouldBe` Right Lib3.Insert {Lib3.table = "flags", Lib3.columns = Nothing, Lib3.values = [IntegerValue 3, StringValue "c", BoolValue True]}
+    it "Parses correct insert statement with one specified columns" $ do
+      Lib3.parseStatement2 "insert into flags (id) values (3);" `shouldBe` Right Lib3.Insert {Lib3.table = "flags", Lib3.columns = Just  (ColumnsSelected ["id"]), Lib3.values = [IntegerValue 3]}
+    it "Parses correct insert statement with many specified columns" $ do
+      Lib3.parseStatement2 "insert into flags (id, flag, value) values (3, 'c', true);" `shouldBe` Right Lib3.Insert {Lib3.table = "flags", Lib3.columns = Just  (ColumnsSelected ["id", "flag","value"]), Lib3.values = [IntegerValue 3, StringValue "c", BoolValue True]}
+    it "Parses correct select now() statement " $ do
+     Lib3.parseStatement2 "select now();" `shouldBe` Right (Lib3.SelectNow )
+    it "Parses correct SELECT NOW() statement with UPPERCASE " $ do
+     Lib3.parseStatement2 "SELECT NOW();" `shouldBe` Right (Lib3.SelectNow )
+    it "Parses update statement without conditions" $ do
+      Lib3.parseStatement2 "update flags set flag = 'a';" `shouldBe` Right Lib3.Update {Lib3.table = "flags", Lib3.selectUpdate = [Condition (ColumnOperand "flag") IsEqualTo  (ConstantOperand (StringValue "a"))], Lib3.selectWhere = Nothing}
+    it "Fails to parse update statement without table name" $ do
+      Lib3.parseStatement2 "update  set flag = 'a';" `shouldSatisfy` isLeft
+    it "Parses update statement with conditions" $ do
+      Lib3.parseStatement2 "update flags set flag = 'a' where flag = 'b';" `shouldBe` Right Lib3.Update {Lib3.table = "flags", Lib3.selectUpdate = [Condition (ColumnOperand "flag") IsEqualTo  (ConstantOperand (StringValue "a"))], Lib3.selectWhere = Just [Condition (ColumnOperand "flag") IsEqualTo  (ConstantOperand (StringValue "b"))]}
+    it "Parses update statement with multiple conditions" $ do
+      Lib3.parseStatement2 "update flags set flag = 'a' where flag = 'b' and value = 2;" `shouldBe` Right Lib3.Update {Lib3.table = "flags", Lib3.selectUpdate = [Condition (ColumnOperand "flag") IsEqualTo  (ConstantOperand (StringValue "a"))], Lib3.selectWhere = Just [Condition (ColumnOperand "flag") IsEqualTo  (ConstantOperand (StringValue "b")),Condition (ColumnOperand "value") IsEqualTo  (ConstantOperand (IntegerValue 2))]}
   describe "Lib3.deserializedContent" $ do
     it "parses valid tables" $ do
       Lib3.deserializedContent  "{\

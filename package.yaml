@@ -99,3 +99,5 @@ tests:
     dependencies:
     - fp2023
     - hspec
+    - free
+    - time

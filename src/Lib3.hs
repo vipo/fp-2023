@@ -16,12 +16,13 @@
 
 module Lib3
   ( executeSql,
-    parseStatement,
+    parseStatement2,
     Execution,
-    ParsedStatement2,
+    ParsedStatement2(..),
     ExecutionAlgebra(..),
     deserializedContent,
-    serializedContent
+    serializedContent,
+    SelectedColumns(..),
   )
 where
 import Lib2
@@ -178,7 +179,7 @@ data ParsedStatement2 =
   | ShowTable {
     table :: TableName
    }
-  |SelectAll {
+  | SelectAll {
     tables :: TableArray,
     selectWhere :: Maybe WhereSelect
    }
@@ -998,16 +999,6 @@ getColumnListFromCartesianDF ((CartesianColumn (table, column)):xs) = [column] +
 --------------------------------------------------------------------------------
 ------------------------------THE parsers---------------------------------------
 
-selectNowParser :: Parser ParsedStatement2
-selectNowParser = do
-    _ <- queryStatementParser "select"
-    _ <- whitespaceParser
-    _ <- queryStatementParser "now"
-    _ <- optional whitespaceParser
-    _ <- queryStatementParser "("
-    _ <- optional whitespaceParser
-    _ <- queryStatementParser ")"
-    pure SelectNow
 
 insertParser :: Parser ParsedStatement2
 insertParser = do
@@ -1110,6 +1101,17 @@ selectAllParser = do
   selectWhere <- optional whereParser
   _ <- optional whitespaceParser
   pure $ Lib3.SelectAll tableArray selectWhere
+
+selectNowParser :: Parser ParsedStatement2
+selectNowParser = do
+    _ <- queryStatementParser "select"
+    _ <- whitespaceParser
+    _ <- queryStatementParser "now"
+    _ <- optional whitespaceParser
+    _ <- queryStatementParser "("
+    _ <- optional whitespaceParser
+    _ <- queryStatementParser ")"
+    pure SelectNow
 
 selectStatementParser :: Parser ParsedStatement2
 selectStatementParser = do

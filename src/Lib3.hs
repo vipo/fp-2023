@@ -471,14 +471,14 @@ leaveOnlyColumnNames (DataFrame columns _) = DataFrame columns []
 
 reversedFilterSelect :: DataFrame -> [Condition] -> DataFrame
 reversedFilterSelect df [] = df
-reversedFilterSelect (DataFrame colsOg rowsOg) (x:xs) = reversedFilterSelect (DataFrame colsOg $ reversedFilterCondition colsOg rowsOg x) xs
+reversedFilterSelect (DataFrame colsOg rowsOg) conditions =
+  reversedFilterSelect (DataFrame colsOg (reversedFilterCondition colsOg rowsOg conditions)) []
 
-reversedFilterCondition :: [Column] -> [Row] -> Condition -> [Row]
-reversedFilterCondition _ [] _ = []
-reversedFilterCondition columns (x:xs) condition =
-  if conditionResult columns x condition
-    then  reversedFilterCondition columns xs condition
-    else [x] ++ reversedFilterCondition columns xs condition
+reversedFilterCondition :: [Column] -> [Row] -> [Condition] -> [Row]
+reversedFilterCondition _ rows [] = rows
+reversedFilterCondition columns rows conditions =
+  filter (\x -> not $ all (\condition -> conditionResult columns x condition) conditions) rows
+
 
 ---------------------------------------some delete stuff ends----------------------------
 

@@ -191,6 +191,10 @@ main = hspec $ do
   \]\
   \}"
   describe "Lib3.parseStatement2" $ do
+    it "shows the right table stored in db" $ do
+      Lib3.parseStatement2 "show table employees;" `shouldBe` Right (Lib3.ShowTable "employees") 
+    it "shows the list of tables which are stored in db" $ do
+      Lib3.parseStatement2 "show tables;" `shouldBe` Right Lib3.ShowTables
     it "Parses correct update statements" $ do
       Lib3.parseStatement2 "update flags set flag = 'c', value = True where flag = 'b';" `shouldBe` Right Lib3.Update {Lib3.table = "flags", Lib3.selectUpdate = [Condition (ColumnOperand "flag") IsEqualTo  (ConstantOperand (StringValue "c")), Condition (ColumnOperand "value") IsEqualTo  (ConstantOperand (BoolValue True))], Lib3.selectWhere = Just [Condition (ColumnOperand "flag") IsEqualTo  (ConstantOperand (StringValue "b"))]}
     it "Parses correct insert statements" $ do
@@ -203,85 +207,176 @@ main = hspec $ do
       Lib3.parseStatement2 "insert into flags (flag)ag =" `shouldSatisfy` isLeft
     it "Does not parse incorrect update statements" $ do
       Lib3.parseStatement2 "update flags set flag = 'c', value = True whag)ag =" `shouldSatisfy` isLeft
-
-
+  describe "Lib3.MockedDatabase" $ do  
+    it "Checking simple SELECT" $ do
+      db <- dataBase
+      res <- runExecuteIO' db getCurrentTime $ Lib3.executeSql "select id from flags;"
+      res `shouldBe` Right (DataFrame [Column "id" IntegerType] [[IntegerValue 1],[IntegerValue 1],[IntegerValue 2],[IntegerValue 2]])
+    it "Checking SHOW TABLES query" $ do
+      db <- dataBase
+      res <- runExecuteIO' db getCurrentTime $ Lib3.executeSql "show tables;"
+      res `shouldBe` Right (DataFrame [Column "Tables" StringType] [[StringValue "employees"],[StringValue "flags"]])
+    it "Checking SHOW TABLE query" $ do
+      db <- dataBase
+      res <- runExecuteIO' db getCurrentTime $ Lib3.executeSql "show table employees;"
+      res `shouldBe` Right (DataFrame [Column "employees" StringType] [[StringValue "id"],[StringValue "name"],[StringValue "surname"]])
+    it "Checking SELECT NOW() query" $ do
+      db <- dataBase
+      res <- runExecuteIO' db testCurrentTime $ Lib3.executeSql "select now();"
+      res `shouldBe` Right (DataFrame [Column "Now" StringType] [[StringValue "2023-11-27 01:59:59"]]) --Musu laiko zonoj prideda 2h
+    it "Checking SELECT NOW() query with column names" $ do
+      db <- dataBase
+      res <- runExecuteIO' db testCurrentTime $ Lib3.executeSql "select now(), id from employees;"
+      res `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "Now" StringType] [[IntegerValue 1, StringValue "2023-11-27 01:59:59"], [IntegerValue 2, StringValue "2023-11-27 01:59:59"]])
+    it "Checking SELECT NOW() query with aggregates" $ do
+      db <- dataBase
+      res <- runExecuteIO' db testCurrentTime $ Lib3.executeSql "select now(), sum(employees.id), max(value) from employees, flags where flag = 'b';"
+      res `shouldBe` Right (DataFrame [Column "Max value" BoolType, Column "Sum employees.id" IntegerType, Column "Now" StringType] [[BoolValue True, IntegerValue 9, StringValue "2023-11-27 01:59:59"]])
+    it "Checking UPDATE query" $ do
+      db <- dataBase
+      res <- runExecuteIO' db testCurrentTime $ Lib3.executeSql "update flags set value = True where id = 2;"
+      res `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "flag" StringType, Column "value" BoolType] [[IntegerValue 1, StringValue "a", BoolValue True],[IntegerValue 1, StringValue "b", BoolValue True],[IntegerValue 2, StringValue "b", BoolValue True],[IntegerValue 2, StringValue "b", BoolValue True]])
+    it "Checking UPDATE query with multiple sets and conditions" $ do
+      db <- dataBase
+      res <- runExecuteIO' db testCurrentTime $ Lib3.executeSql "update flags set value = True, flag = 'a' where id = 2 and flag = 'b';"
+      res `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "flag" StringType, Column "value" BoolType] [[IntegerValue 1, StringValue "a", BoolValue True],[IntegerValue 1, StringValue "a", BoolValue True],[IntegerValue 2, StringValue "a", BoolValue True],[IntegerValue 2, StringValue "a", BoolValue True]])
+    it "Checking INSERT INTO query" $ do
+      db <- dataBase
+      res <- runExecuteIO' db testCurrentTime $ Lib3.executeSql "insert into flags (flag) values ('b');"
+      res `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "flag" StringType, Column "value" BoolType] [[IntegerValue 1, StringValue "a", BoolValue True], [IntegerValue 1, StringValue "b", BoolValue True], [IntegerValue 2, StringValue "b", NullValue], [IntegerValue 2, StringValue "b", BoolValue False], [NullValue, StringValue "b", NullValue]])
+    it "Checking INSERT INTO query with multiple columns and multiple values" $ do
+      db <- dataBase
+      res <- runExecuteIO' db testCurrentTime $ Lib3.executeSql "insert into flags (flag, value) values ('b', False);"
+      res `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "flag" StringType, Column "value" BoolType] [[IntegerValue 1, StringValue "a", BoolValue True], [IntegerValue 1, StringValue "b", BoolValue True], [IntegerValue 2, StringValue "b", NullValue], [IntegerValue 2, StringValue "b", BoolValue False], [NullValue, StringValue "b", BoolValue False]])
+    it "Checking DELETE FROM query without conditions" $ do
+      db <- dataBase
+      res <- runExecuteIO' db testCurrentTime $ Lib3.executeSql "delete from flags;"
+      res `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "flag" StringType, Column "value" BoolType] [])    
+    it "Checking DELETE FROM query with multiple conditions" $ do
+      db <- dataBase
+      res <- runExecuteIO' db testCurrentTime $ Lib3.executeSql "delete from flags where value = True and flag = 'b';"
+      res `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "flag" StringType, Column "value" BoolType] [[IntegerValue 1, StringValue "a", BoolValue True],[IntegerValue 2, StringValue "b", NullValue],[IntegerValue 2, StringValue "b", BoolValue False]])
+    it "Checking SELECT ALL query with multiple tables" $ do
+      db <- dataBase
+      res <- runExecuteIO' db testCurrentTime $ Lib3.executeSql "select * from flags, employees;"
+      res `shouldBe` Right (DataFrame [Column "id" IntegerType, Column "flag" StringType, Column "value" BoolType, Column "id" IntegerType, Column "name" StringType, Column "surname" StringType] [[IntegerValue 1, StringValue "a", BoolValue True, IntegerValue 1, StringValue "Vi", StringValue "Po"], [IntegerValue 1, StringValue "a", BoolValue True, IntegerValue 2, StringValue "Ed", StringValue "Dl"], [IntegerValue 1, StringValue "b", BoolValue True, IntegerValue 1, StringValue "Vi", StringValue "Po"], [IntegerValue 1, StringValue "b", BoolValue True, IntegerValue 2, StringValue "Ed", StringValue "Dl"], [IntegerValue 2, StringValue "b", NullValue, IntegerValue 1, StringValue "Vi", StringValue "Po"], [IntegerValue 2, StringValue "b", NullValue, IntegerValue 2, StringValue "Ed", StringValue "Dl"], [IntegerValue 2, StringValue "b", BoolValue False, IntegerValue 1, StringValue "Vi", StringValue "Po"], [IntegerValue 2, StringValue "b", BoolValue False, IntegerValue 2, StringValue "Ed", StringValue "Dl"]])
+    it "Checking SELECT ALL query with multiple tables and multiple conditions" $ do
+      db <- dataBase
+      res <- runExecuteIO' db testCurrentTime $ Lib3.executeSql "select * from flags, employees where flag = 'a' and employees.id = 2;"
+      res `shouldBe` Right (DataFrame [Column "id" IntegerType,Column "flag" StringType,Column "value" BoolType,Column "id" IntegerType,Column "name" StringType,Column "surname" StringType] [[IntegerValue 1,StringValue "a",BoolValue True,IntegerValue 2,StringValue "Ed",StringValue "Dl"]])
+    it "Checking SELECT ALL query with multiple tables and columns with provided table names" $ do
+      db <- dataBase
+      res <- runExecuteIO' db testCurrentTime $ Lib3.executeSql "select * from flags, employees where flags.id = employees.id;"
+      res `shouldBe` Right (DataFrame [Column "id" IntegerType,Column "flag" StringType,Column "value" BoolType,Column "id" IntegerType,Column "name" StringType,Column "surname" StringType] [[IntegerValue 1,StringValue "a",BoolValue True,IntegerValue 1,StringValue "Vi",StringValue "Po"],[IntegerValue 1,StringValue "b",BoolValue True,IntegerValue 1,StringValue "Vi",StringValue "Po"],[IntegerValue 2,StringValue "b",NullValue,IntegerValue 2,StringValue "Ed",StringValue "Dl"],[IntegerValue 2,StringValue "b",BoolValue False,IntegerValue 2,StringValue "Ed",StringValue "Dl"]])
+    it "Checking if column names provided in conditions are ambiguous" $ do
+      db <- dataBase
+      res <- runExecuteIO' db testCurrentTime $ Lib3.executeSql "select * from flags, employees where id = 2;"
+      res `shouldSatisfy` isLeft 
+    it "Checking if table name with column name provided in condition exists" $ do
+      db <- dataBase
+      res <- runExecuteIO' db testCurrentTime $ Lib3.executeSql "select * from flags, employees where miegas.value = False;"
+      res `shouldSatisfy` isLeft 
+    it "Checking SELECT query with multiple tables" $ do
+      db <- dataBase
+      res <- runExecuteIO' db testCurrentTime $ Lib3.executeSql "select flag from flags, employees;"
+      res `shouldBe` Right (DataFrame [Column "flag" StringType] [[StringValue "a"],[StringValue "a"],[StringValue "b"],[StringValue "b"],[StringValue "b"],[StringValue "b"],[StringValue "b"],[StringValue "b"]])
+    it "Checking SELECT query with multiple tables and multiple columns" $ do
+      db <- dataBase
+      res <- runExecuteIO' db testCurrentTime $ Lib3.executeSql "select flag, value from flags, employees;"
+      res `shouldBe` Right (DataFrame [Column "flag" StringType, Column "value" BoolType] [[StringValue "a", BoolValue True], [StringValue "a", BoolValue True], [StringValue "b", BoolValue True], [StringValue "b", BoolValue True], [StringValue "b", NullValue], [StringValue "b", NullValue], [StringValue "b", BoolValue False], [StringValue "b", BoolValue False]])
+    it "Checking SELECT query with multiple tables, multiple columns with provided table names and multiple conditions" $ do
+      db <- dataBase
+      res <- runExecuteIO' db testCurrentTime $ Lib3.executeSql "select flags.value, employees.id from flags, employees where name = 'Vi';"
+      res `shouldBe` Right (DataFrame [Column "value" BoolType,Column "id" IntegerType] [[BoolValue True,IntegerValue 1],[BoolValue True,IntegerValue 1],[NullValue,IntegerValue 1],[BoolValue False,IntegerValue 1]])
+    it "Checking SELECT query with multiple tables and multiple aggregation functions and multiple conditions" $ do
+      db <- dataBase
+      res <- runExecuteIO' db testCurrentTime $ Lib3.executeSql "select max(flag), sum(employees.id) from flags, employees where value = True and surname = 'Dl';"
+      res `shouldBe` Right (DataFrame [Column "Max flag" StringType,Column "Sum employees.id" IntegerType] [[StringValue "b",IntegerValue 4]])   
+    it "Checking if provided column names are ambiguous" $ do
+      db <- dataBase
+      res <- runExecuteIO' db testCurrentTime $ Lib3.executeSql "select id from flags, employees;"
+      res `shouldSatisfy` isLeft 
+    it "Checking if provided table name with column name exists" $ do
+      db <- dataBase
+      res <- runExecuteIO' db testCurrentTime $ Lib3.executeSql "select miegas.id from flags, employees;"
+      res `shouldSatisfy` isLeft 
 
 type Database =  [(String, IORef String)]
-
 
 dataBase :: IO Database
 dataBase = do
   employees <- newIORef "{\
-  \\"Table\":\"employees\",\
-  \\"Columns\":[\
-  \{\"Name\":\"id\",\"ColumnType\":\"IntegerType\"},\
-  \{\"Name\":\"name\",\"ColumnType\":\"StringType\"},\
-  \{\"Name\":\"surname\",\"ColumnType\":\"StringType\"}\
-  \],\
-  \\"Rows\":[\
-  \{\"Row\":[{\"Value\":\"IntegerValue 1\"},{\"Value\":\"StringValue Vi\"},{\"Value\":\"StringValue Po\"}]},\
-  \{\"Row\":[{\"Value\":\"IntegerValue 2\"},{\"Value\":\"StringValue Ed\"},{\"Value\":\"StringValue Dl\"}]}\
-  \]\
-  \}"
+    \\"Table\":\"employees\",\
+    \\"Columns\":[\
+    \{\"Name\":\"id\",\"ColumnType\":\"IntegerType\"},\
+    \{\"Name\":\"name\",\"ColumnType\":\"StringType\"},\
+    \{\"Name\":\"surname\",\"ColumnType\":\"StringType\"}\
+    \],\
+    \\"Rows\":[\
+    \{\"Row\":[{\"Value\":\"IntegerValue 1\"},{\"Value\":\"StringValue Vi\"},{\"Value\":\"StringValue Po\"}]},\
+    \{\"Row\":[{\"Value\":\"IntegerValue 2\"},{\"Value\":\"StringValue Ed\"},{\"Value\":\"StringValue Dl\"}]}\
+    \]\
+    \}"
   flags <- newIORef "{\
-  \\"Table\":\"flags\",\
-  \\"Columns\":[\
-  \{\"Name\":\"id\", \"ColumnType\":\"IntegerType\"},\
-  \{\"Name\":\"flag\", \"ColumnType\":\"StringType\"},\
-  \{\"Name\":\"value\", \"ColumnType\":\"BoolType\"}\
-  \],\
-  \\"Rows\":[\
-  \{\"Row\":[{\"Value\":\"IntegerValue 1\"},{\"Value\":\"StringValue a\"},{\"Value\":\"BoolValue True\"}]},\
-  \{\"Row\":[{\"Value\":\"IntegerValue 1\"},{\"Value\":\"StringValue b\"},{\"Value\":\"BoolValue True\"}]},\
-  \{\"Row\":[{\"Value\":\"IntegerValue 2\"},{\"Value\":\"StringValue b\"},{\"Value\":\"NullValue\"}]},\
-  \{\"Row\":[{\"Value\":\"IntegerValue 2\"},{\"Value\":\"StringValue b\"},{\"Value\":\"BoolValue False\"}]}\
-  \]\
-  \}"
+    \\"Table\":\"flags\",\
+    \\"Columns\":[\
+    \{\"Name\":\"id\",\"ColumnType\":\"IntegerType\"},\
+    \{\"Name\":\"flag\",\"ColumnType\":\"StringType\"},\
+    \{\"Name\":\"value\",\"ColumnType\":\"BoolType\"}\
+    \],\
+    \\"Rows\":[\
+    \{\"Row\":[{\"Value\":\"IntegerValue 1\"},{\"Value\":\"StringValue a\"},{\"Value\":\"BoolValue True\"}]},\
+    \{\"Row\":[{\"Value\":\"IntegerValue 1\"},{\"Value\":\"StringValue b\"},{\"Value\":\"BoolValue True\"}]},\
+    \{\"Row\":[{\"Value\":\"IntegerValue 2\"},{\"Value\":\"StringValue b\"},{\"Value\":\"NullValue\"}]},\
+    \{\"Row\":[{\"Value\":\"IntegerValue 2\"},{\"Value\":\"StringValue b\"},{\"Value\":\"BoolValue False\"}]}\
+    \]\
+    \}"
   return [("employees", employees),("flags", flags)]
 
 testCurrentTime :: IO UTCTime
 testCurrentTime = return $ read "2023-11-26 23:59:59 UTC"
 
 
--- runExecuteIO :: Database -> Lib3.Execution r -> IO r
--- runExecuteIO _ (Pure r) = return r
--- runExecuteIO table (Free step) = do
---     next <- runStep table step
---     runExecuteIO table next 
---   where
---     runStep :: Database -> Lib3.ExecutionAlgebra a -> IO (Database, a)
---     runStep table (Lib3.GetTime next) = return (table, next testCurrentTime)
---     -- runStep table (Lib3.LoadFile tableName next) = case lookup tableName table of
---     --         Just ref -> readIORef ref >>= \content -> return (db, next $ Lib3.deserializedContent content)
---     --         Nothing -> return (db, next $ Left $ "Table '" ++ tableName ++ "' does not exist.")
+runExecuteIO :: Database -> Lib3.Execution r -> IO r
+runExecuteIO _ (Pure r) = return r
+runExecuteIO table (Free step) = do
+    next <- runStep table step
+    runExecuteIO table (snd next)
+  where
+    runStep :: Database -> Lib3.ExecutionAlgebra a -> IO (Database, a)
+    runStep table (Lib3.GetTime next) = do
+        currentTime <- testCurrentTime
+        return (table, next currentTime)
+    runStep table (Lib3.LoadFile tableName next) = case lookup tableName table of
+        Just ref -> readIORef ref >>= \content -> return (table, next $ Lib3.deserializedContent content)
+        Nothing -> return (table, next $ Left $ "Table '" ++ tableName ++ "' does not exist.")
 
+runExecuteIO' :: Database -> IO UTCTime -> Lib3.Execution r -> IO r
+runExecuteIO' table time (Pure r) = return r
+runExecuteIO' table time (Free step) = do
+    (dataB, next) <- runStep table time step
+    runExecuteIO' dataB time next
 
+runStep :: Database -> IO UTCTime -> Lib3.ExecutionAlgebra a -> IO (Database, a)
+runStep table time (Lib3.GetTime next) = do
+    currentTime <- time
+    return (table, next currentTime)
 
--- runExecuteIO :: Database -> IO UTCTime -> Lib3.Execution r -> IO r
--- runExecuteIO table time (Pure r) = return r
--- runExecuteIO table time (Free step) = do
---     (dataB, next) <- runStep databBase step
---     runExecuteIO dataB time next
---   where
---     runStep :: Database -> IO UTCTime -> Lib3.ExecutionAlgebra a -> IO a
---     runStep table times (Lib3.GetTime next) = 
---         getCurrentTime >>= \time -> return (db, next time)
+runStep table _ (Lib3.LoadFile tableName next) =
+    case lookup tableName table of
+        Just ref -> readIORef ref >>= \content -> return (table, next $ Lib3.deserializedContent content)
+        Nothing -> return (table, next $ Left $ "Table '" ++ tableName ++ "' does not exist.")
 
---     runStep table (Lib3.LoadFile tableName next) =
---         case lookup tableName table of
---             Just ref -> readIORef ref >>= \content -> return (db, next $ Lib3.deserializedContent content)
---             Nothing -> return (db, next $ Left $ "Table '" ++ tableName ++ "' does not exist.")
+runStep db _ (Lib3.SaveFile (tableName, tableContent) next) =
+    case lookup tableName db of
+        Just ref -> case Lib3.serializedContent (tableName, tableContent) of
+            Left err -> error err
+            Right serializedTable -> do
+                writeIORef ref serializedTable
+                return (db, next ())
+        Nothing -> return (db, next ())
 
---     runStep db (Lib3.SaveFile (tableName, tableContent) next) =
---         case lookup tableName db of
---             Just ref -> case Lib3.serializedContent (tableName, tableContent) of
---                 Left err -> error err  
---                 Right serializedTable -> do
---                     writeIORef ref serializedTable
---                     return (db, next ())
---             Nothing -> return (db, next ())  
-
---     runStep db getCurrentTime' (Lib3.GetTables next) = 
---         return (db, next $ map fst db)
+runStep db _ (Lib3.GetTables next) =
+    return (db, next $ map fst db)
 
 

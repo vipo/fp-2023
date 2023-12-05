@@ -39,7 +39,9 @@ ghc-options:
 library:
   source-dirs: src
   dependencies:
+  - async
   - free
+  - stm
   - time
   - transformers
 

@@ -40,6 +40,7 @@ library
       Lessons.Lesson11
       Lessons.Lesson12
       Lessons.Lesson13
+      Lessons.Lesson14
       Lib1
       Lib2
       Lib3
@@ -53,6 +54,7 @@ library
   build-depends:
       async
     , base >=4.7 && <5
+    , deepseq
     , free
     , stm
     , time

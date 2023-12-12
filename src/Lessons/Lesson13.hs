@@ -43,8 +43,7 @@ main3 = runConcurrently $ do
 
 transfer :: Int -> TVar Int -> TVar Int -> STM ()
 transfer amount accA accB = do
-  _ <- return $ unsafePerformIO $ putStrLn "ojoj"
-  a <- readTVar accA
+  a <- (return $ unsafePerformIO $ putStrLn "ojoj" >> return 5) >>readTVar accA
   b <- readTVar accB
   writeTVar accA (a - amount)
   writeTVar accB (b + amount)

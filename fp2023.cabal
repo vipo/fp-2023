@@ -41,6 +41,7 @@ library
       Lib1
       Lib2
       Lib3
+      Lib4
   other-modules:
       Paths_fp2023
   hs-source-dirs:
@@ -128,5 +129,54 @@ test-suite fp2023-test
     , fp2023
     , free
     , hspec
+    , time
+  default-language: Haskell2010
+
+executable fp2023-sql-client
+  main-is: Client.hs
+  other-modules:
+      Paths_fp2023
+  hs-source-dirs:
+      client
+  default-extensions:
+      ImportQualifiedPost
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      aeson
+    , base >=4.7 && <5
+    , bytestring
+    , extra
+    , fp2023
+    , http-client
+    , lens
+    , repline
+    , terminal-size
+    , wreq
+  default-language: Haskell2010
+
+  executable fp2023-sql-server
+  main-is: Server.hs
+  other-modules:
+      Paths_fp2023
+  hs-source-dirs:
+      server
+  default-extensions:
+      ImportQualifiedPost
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      Spock
+    , aeson
+    , base >=4.7 && <5
+    , directory
+    , extra
+    , filepath
+    , fp2023
+    , free
+    , http-types
+    , mtl
+    , repline
+    , stm
+    , terminal-size
+    , text
     , time
   default-language: Haskell2010

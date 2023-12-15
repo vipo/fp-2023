@@ -23,6 +23,11 @@ module Lib3
     deserializedContent,
     serializedContent,
     SelectedColumns(..),
+    TableName,
+    InsertedValues,
+    WhereSelect,
+    TableArray,
+    SpecialSelect2
   )
 where
 import Lib2

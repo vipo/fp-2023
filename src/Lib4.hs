@@ -2,7 +2,7 @@
 {-# LANGUAGE InstanceSigs #-}
 
 module Lib4() where
-import Lib2(stopParseAt, dropWhiteSpaces, getOperand, stringToInt, isNumber, areSpacesBetweenWords, splitStatementAtParentheses, tableNameParser)
+import Lib2(dropWhiteSpaces, getOperand, stringToInt, isNumber, areSpacesBetweenWords, splitStatementAtParentheses, tableNameParser)
 import Control.Applicative(Alternative(empty, (<|>)),optional, some, many)
 import Control.Monad.Trans.State.Strict (State, StateT, get, put, runState, runStateT, state)
 import Data.Char (toLower, GeneralCategory (ParagraphSeparator), isSpace, isAlphaNum, isDigit, digitToInt)
@@ -199,6 +199,25 @@ throwE err = EitherT $ return $ Left err
 --                <|> selectNowParser
 --                <|> createTableParser
 --                <|> dropTableParser
+
+parseStatement :: String -> Either Error ParsedStatement3
+parseStatement input = do
+  (query, remain) <- runParser p input
+  (_,_) <- runParser stopParseAt remain
+  return query
+  where
+    p :: Parser ParsedStatement3
+    p = showTableParser
+               <|> showTablesParser
+              --  <|> selectStatementParser
+              --  <|> selectAllParser
+               <|> insertParser
+               <|> updateParser
+               <|> deleteParser
+               <|> selectNowParser
+               <|> createTableParser
+               <|> dropTableParser
+
 
 dropTableParser :: Parser ParsedStatement3
 dropTableParser = do
@@ -640,3 +659,18 @@ aggregateFunctionParser = sumParser <|> maxParser
     maxParser = do
         _ <- queryStatementParser "max"
         pure Max
+
+stopParseAt :: Parser String
+stopParseAt  = do
+  _ <- optional whitespaceParser
+  _ <- queryStatementParser ";"
+  checkAfterQuery
+  where
+    checkAfterQuery :: Parser String
+    checkAfterQuery = do
+      query <- lift get
+      case query of
+          [] -> do
+                  lift $ put []
+                  return []
+          s -> throwE ("Characters found after ;" ++ s)

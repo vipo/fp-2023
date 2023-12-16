@@ -16,18 +16,12 @@
 
 module Lib3
   ( executeSql,
-    parseStatement2,
     Execution,
-    ParsedStatement2(..),
     ExecutionAlgebra(..),
     deserializedContent,
     serializedContent,
     SelectedColumns(..),
-    TableName,
-    InsertedValues,
-    WhereSelect,
-    TableArray,
-    SpecialSelect2
+    NowFunction
   )
 where
 import Lib2

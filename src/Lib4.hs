@@ -2,7 +2,7 @@
 {-# LANGUAGE InstanceSigs #-}
 
 module Lib4() where
-import Lib2(stopParseAt, dropWhiteSpaces, getOperand, stringToInt, isNumber, areSpacesBetweenWords, splitStatementAtParentheses)
+import Lib2(stopParseAt, dropWhiteSpaces, getOperand, stringToInt, isNumber, areSpacesBetweenWords, splitStatementAtParentheses, tableNameParser)
 import Control.Applicative(Alternative(empty, (<|>)),optional, some, many)
 import Control.Monad.Trans.State.Strict (State, StateT, get, put, runState, runStateT, state)
 import Data.Char (toLower, GeneralCategory (ParagraphSeparator), isSpace, isAlphaNum, isDigit, digitToInt)
@@ -77,7 +77,7 @@ data ParsedStatement3 =
   }
   | CreateTable {
     table :: TableName,
-    newColumns :: [ColumnName]
+    newColumns :: [Column]
   }
   | Insert {
     table :: TableName,
@@ -212,12 +212,18 @@ dropTableParser = do
 createTableParser :: Parser ParsedStatement3
 createTableParser = do
     _ <- queryStatementParser "create"
-    _ <- queryStatementParser '('
+    _ <- whitespaceParser
+    _ <- queryStatementParser "table"
+    _ <- whitespaceParser
+    table <- columnNameParser
+    _ <- whitespaceParser
+    _ <- char '('
+    _ <- optional whitespaceParser
     columnsAndTypes <- columnListParser
-    _ <- optional parseWhitespace
-    _ <- queryStatementParser ')'
-    _ <- optional parseWhitespace
-    pure $ CreateTableStatement table columnsAndTypes
+    _ <- optional whitespaceParser
+    _ <- char ')'
+    _ <- optional whitespaceParser
+    pure $ CreateTable table columnsAndTypes
 
 runParser :: Parser a -> String -> Either Error (a, String)
 runParser parser input = 
@@ -486,10 +492,10 @@ showTableParser = do
     _ <- optional whitespaceParser
     pure $ Lib4.ShowTable table
 
-columnListParser :: Parser [ColumnName]
+columnListParser :: Parser [Column]
 columnListParser = seperate columnAndTypeParser (optional whitespaceParser >> char ',' *> optional whitespaceParser)
 
-columnAndTypeParser :: Parser ColumnName
+columnAndTypeParser :: Parser Column
 columnAndTypeParser = do
     columnName <- columnNameParser
     _ <- whitespaceParser

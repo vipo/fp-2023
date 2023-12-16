@@ -61,7 +61,7 @@ data SpecialSelect2 = SelectAggregate2 [Aggregate2] (Maybe NowFunction) | Select
   deriving (Show, Eq)
 
 data CartesianColumn = CartesianColumn (TableName, Column)
-  deriving (Show, Eq)
+  deriving (Show, Eq) 
 
 data CartesianDataFrame = CartesianDataFrame [CartesianColumn] [Row]
   deriving (Show, Eq)

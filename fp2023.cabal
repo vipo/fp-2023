@@ -1,6 +1,6 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.35.2.
+-- This file has been generated from package.yaml by hpack version 0.35.1.
 --
 -- see: https://github.com/sol/hpack
 
@@ -114,26 +114,8 @@ executable fp2023-select-more
     , terminal-size
   default-language: Haskell2010
 
-test-suite fp2023-test
-  type: exitcode-stdio-1.0
-  main-is: Spec.hs
-  other-modules:
-      Paths_fp2023
-  hs-source-dirs:
-      test
-  default-extensions:
-      ImportQualifiedPost
-  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
-  build-depends:
-      base >=4.7 && <5
-    , fp2023
-    , free
-    , hspec
-    , time
-  default-language: Haskell2010
-
 executable fp2023-sql-client
-  main-is: Client.hs
+  main-is: Main.hs
   other-modules:
       Paths_fp2023
   hs-source-dirs:
@@ -154,8 +136,8 @@ executable fp2023-sql-client
     , wreq
   default-language: Haskell2010
 
-  executable fp2023-sql-server
-  main-is: Server.hs
+executable fp2023-sql-server
+  main-is: Main.hs
   other-modules:
       Paths_fp2023
   hs-source-dirs:
@@ -178,5 +160,23 @@ executable fp2023-sql-client
     , stm
     , terminal-size
     , text
+    , time
+  default-language: Haskell2010
+
+test-suite fp2023-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Paths_fp2023
+  hs-source-dirs:
+      test
+  default-extensions:
+      ImportQualifiedPost
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base >=4.7 && <5
+    , fp2023
+    , free
+    , hspec
     , time
   default-language: Haskell2010

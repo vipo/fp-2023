@@ -1,17 +1,37 @@
-module Client(main) where
+module Main() where -- module Main(main) where
+import Control.Monad.IO.Class (MonadIO (liftIO))
+import Control.Monad.Free (Free (..))
 
+import Web.Spock
+import Web.Spock.Config
+import Data.Functor((<&>))
+import Data.Time ( UTCTime, getCurrentTime )
+import Data.List qualified as L
+import Lib1 qualified
+import Lib2 qualified
 import Lib3 qualified
+import System.Console.Repline
+  ( CompleterStyle (Word),
+    ExitDecision (Exit),
+    HaskelineT,
+    WordCompleter,
+    evalRepl,
+  )
+import System.Console.Terminal.Size (Window, size, width)
+import Lib2 (tableNameParser)
+import System.Directory (doesFileExist, getDirectoryContents)
+import System.FilePath (pathSeparator)
 
 main :: IO ()
 main =
-  evalRepl (const $ pure ">>> ") cmd [] Nothing Nothing (Word completer) ini final
-
+-- need this, need to change this 
 runExecuteIO :: Lib3.Execution r -> IO r
 runExecuteIO (Pure r) = return r
 runExecuteIO (Free step) = do
     next <- runStep step
     runExecuteIO next
     where
+        -- probably you will want to extend the interpreter
         runStep :: Lib3.ExecutionAlgebra a -> IO a
         runStep (Lib3.GetTime next) = getCurrentTime >>= return . next
         runStep (Lib3.GetTables next) = do

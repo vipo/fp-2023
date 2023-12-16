@@ -87,6 +87,45 @@ executables:
     - filepath
     - directory
     - bytestring
+  fp2023-sql-client:
+    main:                Main.hs
+    source-dirs:         client
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - fp2023
+    - extra
+    - repline
+    - terminal-size
+    - wreq
+    - aeson
+    - lens
+    - bytestring
+    - http-client
+  fp2023-sql-server:
+    main:                Main.hs
+    source-dirs:         server 
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - fp2023
+    - extra
+    - repline
+    - terminal-size
+    - Spock
+    - http-types
+    - text
+    - mtl
+    - aeson
+    - time
+    - free
+    - filepath
+    - directory
+    - stm
 
 tests:
   fp2023-test:

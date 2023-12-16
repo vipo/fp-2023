@@ -1,8 +1,14 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE InstanceSigs #-}
 
-module Lib4() where
-import Lib2(stopParseAt, dropWhiteSpaces, getOperand, stringToInt, isNumber, areSpacesBetweenWords, splitStatementAtParentheses, tableNameParser)
+module Lib4
+  (
+    ParsedStatement3, 
+    parseStatement
+  ) 
+where
+
+import Lib2(dropWhiteSpaces, getOperand, stringToInt, isNumber, areSpacesBetweenWords, splitStatementAtParentheses, tableNameParser)
 import Control.Applicative(Alternative(empty, (<|>)),optional, some, many)
 import Control.Monad.Trans.State.Strict (State, StateT, get, put, runState, runStateT, state)
 import Data.Char (toLower, GeneralCategory (ParagraphSeparator), isSpace, isAlphaNum, isDigit, digitToInt)
@@ -17,9 +23,16 @@ import Data.List (isPrefixOf, nub)
 type ColumnName = String
 type Error = String
 type Parser a = EitherT Error (State String) a
-data OrderBy = OrderByColumnName [ColumnName] | OrderByColumnNumber [Integer]
+
+data AscDesc = Asc String | Desc String
   deriving (Show, Eq)
-type TableName = String
+
+data OrderByValue = ColumnTable (TableName, ColumnName) | ColumnName ColumnName | ColumnNumber Integer 
+  deriving (Show, Eq)
+
+type OrderBy = [(OrderByValue, AscDesc)]
+
+type TableName = String 
 type FileContent = String
 type DeserializedContent = (TableName, DataFrame)
 type ErrorMessage = String
@@ -152,53 +165,23 @@ instance Monad m => Monad (EitherT e m) where
 throwE :: Monad m => e -> EitherT e m a
 throwE err = EitherT $ return $ Left err
 
-
--- parseStatement3 :: String -> Either ErrorMessage ParsedStatement3
--- parseStatement2 query = case runParser p query of
---     Left err1 -> Left err1
---     Right (query, rest) -> case query of
---         Lib3.Select _ _ _ -> case runParser stopParseAt rest of
---           Left err2 -> Left err2
---           Right _ -> Right query
---         Lib3.ShowTable _ -> case runParser stopParseAt rest of
---           Left err2 -> Left err2
---           Right _ -> Right query
---         Lib3.ShowTables -> case runParser stopParseAt rest of
---           Left err2 -> Left err2
---           Right _ -> Right query
---         Lib3.SelectAll _ _ -> case runParser stopParseAt rest of
---           Left err2 -> Left err2
---           Right _ -> Right query
---         Lib3.Insert _ _ _ -> case runParser stopParseAt rest of
---           Left err2 -> Left err2
---           Right _ -> Right query
---         Lib3.Update _ _ _-> case runParser stopParseAt rest of
---           Left err2 -> Left err2
---           Right _ -> Right query
---         Lib3.Delete _ _ -> case runParser stopParseAt rest of
---           Left err2 -> Left err2
---           Right _ -> Right query
---         Lib3.SelectNow -> case runParser stopParseAt rest of
---           Left err2 -> Left err2
---           Right _ -> Right query
---         CreateTable _ _ -> case stopParseAt rest of
---           Left err2 -> Left err2
---           Right _ -> Right query
---         DropTable _  -> case stopParseAt rest of
---           Left err2 -> Left err2
---           Right _ -> Right query
---     where
---         p :: Parser ParsedStatement3
---         p = showTableParser
---                <|> showTablesParser
---                <|> selectStatementParser
---                <|> selectAllParser
---                <|> insertParser
---                <|> updateParser
---                <|> deleteParser
---                <|> selectNowParser
---                <|> createTableParser
---                <|> dropTableParser
+parseStatement :: String -> Either Error ParsedStatement3
+parseStatement input = do
+  (query, remain) <- runParser p input
+  (_,_) <- runParser stopParseAt remain
+  return query
+  where
+    p :: Parser ParsedStatement3
+    p = showTableParser
+               <|> showTablesParser
+               <|> selectStatementParser
+               <|> selectAllParser
+               <|> insertParser
+               <|> updateParser
+               <|> deleteParser
+               <|> selectNowParser
+               <|> createTableParser
+               <|> dropTableParser
 
 dropTableParser :: Parser ParsedStatement3
 dropTableParser = do
@@ -333,19 +316,53 @@ setParser = do
   _ <- whitespaceParser
   seperate whereConditionParser (optional whitespaceParser >> char ',' >> optional whitespaceParser)
 
-----Lib2 stuff----
--- selectAllParser :: Parser ParsedStatement3
--- selectAllParser = do
---   _ <- queryStatementParser "select"
---   _ <- whitespaceParser
---   _ <- queryStatementParser "*"
---   _ <- whitespaceParser
---   _ <- queryStatementParser "from"
---   _ <- whitespaceParser
---   tableArray <- selectTablesParser
---   selectWhere <- optional whereParser
---   _ <- optional whitespaceParser
---   pure $ SelectAll tableArray selectWhere
+selectAllParser :: Parser ParsedStatement3
+selectAllParser = do
+  _ <- queryStatementParser "select"
+  _ <- whitespaceParser
+  _ <- queryStatementParser "*"
+  _ <- whitespaceParser
+  _ <- queryStatementParser "from"
+  _ <- whitespaceParser
+  tableArray <- selectTablesParser
+  selectWhere <- optional whereParser
+  _ <- optional whitespaceParser
+  orderBy <- optional orderByParser
+  _ <- optional whitespaceParser
+  pure $ SelectAll tableArray selectWhere orderBy
+
+--------------------------order by----------------------------------
+orderByParser :: Parser OrderBy
+orderByParser = do
+  some orderValuesParser
+  where 
+    orderValuesParser :: Parser (OrderByValue, AscDesc)
+    orderValuesParser = do
+      value <- orderByValueParser
+      ascDesc <- ascDescParser
+      _ <- optional (whitespaceParser >> char ',')
+      pure (value, ascDesc)
+
+orderByValueParser :: Parser OrderByValue
+orderByValueParser = do (ColumnTable <$> columnNameTableParser) <|> (ColumnName <$> columnNameParser) <|> (ColumnNumber <$> numberParser)
+
+
+ascDescParser :: Parser AscDesc
+ascDescParser = tryParseDesc <|> tryParseAsc <|> tryParseSymbol
+  where
+    tryParseDesc = do
+      _ <- whitespaceParser
+      _ <- queryStatementParser "desc"
+      return $ Desc "desc"
+    tryParseAsc = do
+      _ <- whitespaceParser
+      _ <- queryStatementParser "asc"
+      return $ Asc "asc"
+    tryParseSymbol = do
+      _ <- optional whitespaceParser
+      return $ Asc "asc"
+
+-----------------------------------------------------------------
 
 selectNowParser :: Parser ParsedStatement3
 selectNowParser = do
@@ -358,18 +375,20 @@ selectNowParser = do
     _ <- queryStatementParser ")"
     pure SelectNow
 
--- selectStatementParser :: Parser ParsedStatement3
--- selectStatementParser = do
---     _ <- queryStatementParser "select"
---     _ <- whitespaceParser
---     specialSelect <- selectDataParser
---     _ <- whitespaceParser
---     _ <- queryStatementParser "from"
---     _ <- whitespaceParser
---     tableArray <- selectTablesParser
---     selectWhere <- optional whereParser
---     _ <- optional whitespaceParser
---     pure $ Lib4.Select specialSelect tableArray selectWhere
+selectStatementParser :: Parser ParsedStatement3
+selectStatementParser = do
+    _ <- queryStatementParser "select"
+    _ <- whitespaceParser
+    specialSelect <- selectDataParser
+    _ <- whitespaceParser
+    _ <- queryStatementParser "from"
+    _ <- whitespaceParser
+    tableArray <- selectTablesParser
+    selectWhere <- optional whereParser
+    _ <- optional whitespaceParser
+    orderBy <- optional orderByParser
+    _ <- optional whitespaceParser
+    pure $ Select specialSelect tableArray selectWhere orderBy
 
 selectDataParser :: Parser SpecialSelect2
 selectDataParser = tryParseAggregate <|>  tryParseColumn <|> tryParseColumnTable
@@ -561,6 +580,15 @@ char c = do
                             return c
                         else throwE ("Expected " ++ [c])
 
+numberParser :: Parser Integer
+numberParser = do
+  input <- lift get
+  case takeWhile (\x -> isDigit x) input of
+    [] -> throwE "Empty input"
+    xs -> do
+      lift $ put $ drop (length xs) input
+      return $ stringToInt xs
+
 trashParser :: Parser Trash 
 trashParser = do
   input <- lift get
@@ -640,3 +668,18 @@ aggregateFunctionParser = sumParser <|> maxParser
     maxParser = do
         _ <- queryStatementParser "max"
         pure Max
+
+stopParseAt :: Parser String
+stopParseAt  = do
+  _ <- optional whitespaceParser
+  _ <- queryStatementParser ";"
+  checkAfterQuery
+  where
+    checkAfterQuery :: Parser String
+    checkAfterQuery = do
+      query <- lift get
+      case query of
+          [] -> do
+                  lift $ put []
+                  return []
+          s -> throwE ("Characters found after ;" ++ s)

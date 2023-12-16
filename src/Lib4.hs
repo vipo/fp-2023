@@ -152,6 +152,73 @@ instance Monad m => Monad (EitherT e m) where
 throwE :: Monad m => e -> EitherT e m a
 throwE err = EitherT $ return $ Left err
 
+
+-- parseStatement3 :: String -> Either ErrorMessage ParsedStatement3
+-- parseStatement2 query = case runParser p query of
+--     Left err1 -> Left err1
+--     Right (query, rest) -> case query of
+--         Lib3.Select _ _ _ -> case runParser stopParseAt rest of
+--           Left err2 -> Left err2
+--           Right _ -> Right query
+--         Lib3.ShowTable _ -> case runParser stopParseAt rest of
+--           Left err2 -> Left err2
+--           Right _ -> Right query
+--         Lib3.ShowTables -> case runParser stopParseAt rest of
+--           Left err2 -> Left err2
+--           Right _ -> Right query
+--         Lib3.SelectAll _ _ -> case runParser stopParseAt rest of
+--           Left err2 -> Left err2
+--           Right _ -> Right query
+--         Lib3.Insert _ _ _ -> case runParser stopParseAt rest of
+--           Left err2 -> Left err2
+--           Right _ -> Right query
+--         Lib3.Update _ _ _-> case runParser stopParseAt rest of
+--           Left err2 -> Left err2
+--           Right _ -> Right query
+--         Lib3.Delete _ _ -> case runParser stopParseAt rest of
+--           Left err2 -> Left err2
+--           Right _ -> Right query
+--         Lib3.SelectNow -> case runParser stopParseAt rest of
+--           Left err2 -> Left err2
+--           Right _ -> Right query
+--         CreateTable _ _ -> case stopParseAt rest of
+--           Left err2 -> Left err2
+--           Right _ -> Right query
+--         DropTable _  -> case stopParseAt rest of
+--           Left err2 -> Left err2
+--           Right _ -> Right query
+--     where
+--         p :: Parser ParsedStatement3
+--         p = showTableParser
+--                <|> showTablesParser
+--                <|> selectStatementParser
+--                <|> selectAllParser
+--                <|> insertParser
+--                <|> updateParser
+--                <|> deleteParser
+--                <|> selectNowParser
+--                <|> createTableParser
+--                <|> dropTableParser
+
+dropTableParser :: Parser ParsedStatement3
+dropTableParser = do
+    _ <- queryStatementParser "drop"
+    _ <- whitespaceParser
+    _ <- queryStatementParser "table"
+    _ <- whitespaceParser
+    table <- columnNameParser 
+    pure $ DropTable table
+
+createTableParser :: Parser ParsedStatement3
+createTableParser = do
+    _ <- queryStatementParser "create"
+    _ <- queryStatementParser '('
+    columnsAndTypes <- columnListParser
+    _ <- optional parseWhitespace
+    _ <- queryStatementParser ')'
+    _ <- optional parseWhitespace
+    pure $ CreateTableStatement table columnsAndTypes
+
 runParser :: Parser a -> String -> Either Error (a, String)
 runParser parser input = 
     let eitherResult = runState (runEitherT parser) input
@@ -418,6 +485,22 @@ showTableParser = do
     table <- columnNameParser
     _ <- optional whitespaceParser
     pure $ Lib4.ShowTable table
+
+columnListParser :: Parser [ColumnName]
+columnListParser = seperate columnAndTypeParser (optional whitespaceParser >> char ',' *> optional whitespaceParser)
+
+columnAndTypeParser :: Parser ColumnName
+columnAndTypeParser = do
+    columnName <- columnNameParser
+    _ <- whitespaceParser
+    columnType <- columnNameParser >>= either (throwE . show) pure . columnTypeParser
+    pure (Column columnName columnType)
+
+columnTypeParser :: String -> Either Error ColumnType
+columnTypeParser "int" = Right IntegerType
+columnTypeParser "varchar" = Right StringType
+columnTypeParser "bool" = Right BoolType
+columnTypeParser other = Left $ "There is no such type as: " ++ other
 
 --sitas gali ir neveikti:
 parseSatisfy :: (Char -> Bool) -> Parser Char

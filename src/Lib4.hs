@@ -23,6 +23,8 @@ import GHC.IO.Handle (NewlineMode(inputNL))
 import Data.List (isPrefixOf, nub)
 import Data.Yaml
 import GHC.Generics
+import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Lazy.Char8 as BSL
 
 
 type ColumnName = String
@@ -169,13 +171,13 @@ instance FromJSON SqlTableFromYaml
 --------------------------------------------
 -- also no clue ar tikra taip
 toTable :: String -> Maybe SqlTableFromYaml
-toTable yasm = decode yasm
+toTable yasm = decode $ BSL.toStrict $ BS.pack yasm
 
 toStatement :: String -> Maybe SqlStatement
-toStatement yasm = decode yasm
+toStatement yasm = decode $ BS.pack yasm
 
 toException :: String -> Maybe SqlException
-toException yasm = decode yasm
+toException yasm = decode $ BS.pack yasm
 
 fromTable :: SqlTableFromYaml -> String
 fromTable table = encode table
@@ -185,8 +187,6 @@ fromStatement statement = encode statement
 
 fromException :: SqlException -> String
 fromException exception = encode exception
-
-
 
 
 toDataframe :: SqlTableFromYaml -> DataFrame
@@ -429,7 +429,7 @@ orderByParser :: Parser4 OrderBy
 orderByParser = do
   some orderValuesParser
   where 
-    orderValuesParser :: Parser (OrderByValue, AscDesc)
+    orderValuesParser :: Parser4 (OrderByValue, AscDesc)
     orderValuesParser = do
       value <- orderByValueParser
       ascDesc <- ascDescParser
@@ -544,7 +544,7 @@ whereParser = do
   _ <- whitespaceParser
   some whereAndExist
   where
-    whereAndExist :: Parser Condition
+    whereAndExist :: Parser4 Condition
     whereAndExist = do
       condition <- whereConditionParser
       _ <- optional (whitespaceParser >> andParser)

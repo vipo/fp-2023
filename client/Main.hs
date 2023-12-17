@@ -58,7 +58,7 @@ cmd c = do
         Left err -> return $ Left err
         Right maybeTable -> do 
           let table = toTable $ res ^. Network.Wreq.responseBody :: Maybe SqlTableFromYaml
-          let isTable = iWillMaybeGetTable table 
+          let isTable = toDataframe table 
           case isTable of
             Just tableIs -> return $ Lib1.renderDataFrameAsTable s <$> (dataFrame isTable)
             Nothing -> return $ Left "The response contained of a bad table, we are extremely sorry"

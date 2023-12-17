@@ -98,12 +98,14 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - fp2023
+    - pretty 
     - extra
     - repline
     - terminal-size
     - wreq
     - aeson
     - lens
+    - yaml
     - bytestring
     - http-client
     - free

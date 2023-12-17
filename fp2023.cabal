@@ -136,10 +136,12 @@ executable fp2023-sql-client
     , free
     , http-client
     , lens
+    , pretty
     , repline
     , terminal-size
     , time
     , wreq
+    , yaml
   default-language: Haskell2010
 
 executable fp2023-sql-server

@@ -45,6 +45,7 @@ library:
   - aeson
   - bytestring
   - yaml
+  - lens
 
 executables:
   fp2023-select-all:

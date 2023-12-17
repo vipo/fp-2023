@@ -6,7 +6,12 @@
 module Lib4
   (
     ParsedStatement3, 
-    parseStatement
+    parseStatement,
+    SqlStatement(..), 
+    SqlTableFromYaml,
+    fromStatement,
+    toTable,
+    toDataframe
   ) 
 where
 
@@ -168,6 +173,17 @@ data ValueFromYAML = ValueFromYAML{
 instance FromJSON SqlException
 instance FromJSON SqlStatement
 instance FromJSON SqlTableFromYaml
+instance FromJSON ColumnFromYaml
+instance FromJSON RowFromYAML
+instance FromJSON ValueFromYAML
+
+
+instance ToJSON SqlException
+instance ToJSON SqlStatement
+instance ToJSON SqlTableFromYaml
+instance ToJSON ColumnFromYaml
+instance ToJSON RowFromYAML
+instance ToJSON ValueFromYAML
 --------------------------------------------
 -- also no clue ar tikra taip
 toTable :: String -> Maybe SqlTableFromYaml

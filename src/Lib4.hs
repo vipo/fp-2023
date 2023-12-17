@@ -14,7 +14,8 @@ module Lib4
     toDataframe,
     SqlException(..),
     SqlTableFromYaml(..),
-    fromException
+    fromException,
+    toStatement
   ) 
 where
 

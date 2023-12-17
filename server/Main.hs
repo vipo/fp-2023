@@ -4,9 +4,9 @@ module Main(main) where -- module Main(main) where
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Free (Free (..))
 
-import Web.Spock
+
 import Web.Scotty
-import Web.Spock.Config
+
 import Network.HTTP.Types.Status
 import Control.Concurrent.STM
 import Data.Functor((<&>))
@@ -14,6 +14,7 @@ import Data.Time ( UTCTime, getCurrentTime )
 import Data.List qualified as L
 import Lib1 qualified
 import Lib2 qualified
+import qualified Data.ByteString.Lazy.Char8 as BS8
 import Lib3 qualified
 import Lib4 qualified
 import DataFrame
@@ -54,18 +55,19 @@ data MyAppState = MyAppState
 
 main :: IO ()
 main = do
-    table1 <- newTVarIO ("Table1",  DataFrame [Column "flag" StringType] [[StringValue "a"], [StringValue "b"]])
-    table2 <- newTVarIO ("Table2", DataFrame [Column "value" BoolType][[BoolValue True],[BoolValue True],[BoolValue False]])
+    table1 <- newTVarIO ("Table1", DataFrame [Column "flag" StringType] [[StringValue "a"], [StringValue "b"]])
+    table2 <- newTVarIO ("Table2", DataFrame [Column "value" BoolType] [[BoolValue True], [BoolValue True], [BoolValue False]])
 
     let initialDatabase = newTVarIO [table1, table2]
 
     scotty 1395 $ do
         post "/query" $ do
             requestBody <- body
-            let parsed = toStatement requestBody
-            case parsed of
-                Left errMsg -> json $ errMsg
-                -- Right query -> do
+            let parsed = Lib4.toStatement (BS8.unpack requestBody)
+            return ()
+            -- case parsed of
+            --     Nothing -> json $ "Failed to decode SqlStatement"
+                -- Just query -> do
                 --     executionResult <- liftIO $ runExecuteIO tablesVar $ Lib3.executeSql query
                 --     liftIO $ print executionResult
                 --     json executionResult

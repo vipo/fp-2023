@@ -141,6 +141,7 @@ executable fp2023-sql-client
     , repline
     , scotty
     , terminal-size
+    , text
     , time
     , wreq
     , yaml
@@ -159,6 +160,7 @@ executable fp2023-sql-server
       Spock
     , aeson
     , base >=4.7 && <5
+    , bytestring
     , directory
     , extra
     , filepath

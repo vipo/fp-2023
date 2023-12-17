@@ -1,4 +1,5 @@
 module Main (main) where
+
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Free (Free (..))
 import Data.Functor((<&>))
@@ -14,6 +15,7 @@ import System.Console.Repline
     WordCompleter,
     evalRepl,
   )
+
 import System.Console.Terminal.Size (Window, size, width)
 import Lib2 (tableNameParser)
 import System.Directory (doesFileExist, getDirectoryContents)
@@ -46,14 +48,16 @@ cmd c = do
     terminalWidth = maybe 80 width
     cmd' :: Integer -> IO (Either String String)
     cmd' s = do
-      df <- --gauna, siuncia cia, yra response, reikia handlinti su errors somehow
+      df <- (Right <$> postWith defaults "http://localhost:1395" (FromJSON (SqlRequest {statement = inp })))  --`E.catch` handleHttpException
       case df of 
         Left err -> return $ Left err
         Right maybeTable -> do 
-          let table = --is response bandom deserializinti table 
+          let table = 
           case isTable of
-            Just tableIs -> -- return $ Lib1.renderDataFrameAsTable s <$> isTable
+            Just tableIs -> return $ Lib1.renderDataFrameAsTable s <$> (dataFrame isTable)
             Nothing -> return $ Left "The response contained of a bad table, we are extremely sorry"
+
+
 main :: IO ()
 main =
   evalRepl (const $ pure ">>> ") cmd [] Nothing Nothing (Word completer) ini final

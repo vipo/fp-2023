@@ -21,7 +21,8 @@ module Lib3
     deserializedContent,
     serializedContent,
     SelectedColumns(..),
-    NowFunction
+    NowFunction,
+    FromJSONValue
   )
 where
 import Lib2

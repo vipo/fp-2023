@@ -1,15 +1,21 @@
-module Main() where -- module Main(main) where
+{-# LANGUAGE OverloadedStrings #-}
+
+module Main(main) where -- module Main(main) where
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Free (Free (..))
 
 import Web.Spock
 import Web.Spock.Config
+import Network.HTTP.Types.Status
+import Control.Concurrent.STM
 import Data.Functor((<&>))
 import Data.Time ( UTCTime, getCurrentTime )
 import Data.List qualified as L
 import Lib1 qualified
 import Lib2 qualified
 import Lib3 qualified
+import DataFrame
+import InMemoryTables
 import System.Console.Repline
   ( CompleterStyle (Word),
     ExitDecision (Exit),
@@ -21,9 +27,51 @@ import System.Console.Terminal.Size (Window, size, width)
 import Lib2 (tableNameParser)
 import System.Directory (doesFileExist, getDirectoryContents)
 import System.FilePath (pathSeparator)
+import Data.Yaml
+
+type ThreadSafeTable = TVar (TableName, DataFrame)
+type ThreadSafeDataBase = TVar [ThreadSafeTable]
+
+
+data MyAppState = MyAppState
+    { appDatabase :: ThreadSafeDataBase
+    }
+
+
 
 main :: IO ()
-main =
+main = do
+    table1 <- newTVarIO ("Table1",  DataFrame [Column "flag" StringType] [[StringValue "a"], [StringValue "b"]])
+    table2 <- newTVarIO ("Table2", DataFrame [Column "value" BoolType][[BoolValue True],[BoolValue True],[BoolValue False]])
+
+    let initialDatabase = newTVarIO [table1, table2]
+
+    spockCfg <- defaultSpockCfg () PCNoDatabase (MyAppState <$> initialDatabase)
+
+    runSpock 1395 (spock spockCfg app)
+
+
+
+app :: SpockM () () AppState ()
+app = do
+  post root $ do
+    appState <- getState
+    mreq <- yamlBody
+    case mreq of
+      Just req -> do
+        result <- liftIO $ runExecuteIO (db appState) $ Lib3.executeSql $ query req
+        case result of
+          Left err -> do
+            setStatus badRequest400
+            FromJSON SqlErrorResponse { errorMessage = err }
+          Right df -> do
+            FromJSON SqlTableFromYaml { dataFrame = df }
+      Nothing -> do
+        setStatus badRequest400
+        FromJSON SqlException { exception = "Request body format is incorrect." }
+      
+
+
 -- need this, need to change this 
 runExecuteIO :: Lib3.Execution r -> IO r
 runExecuteIO (Pure r) = return r

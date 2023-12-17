@@ -44,6 +44,7 @@ library:
   - transformers
   - aeson
   - bytestring
+  - yaml
 
 executables:
   fp2023-select-all:
@@ -104,6 +105,10 @@ executables:
     - lens
     - bytestring
     - http-client
+    - free
+    - time
+    - directory
+    - filepath
   fp2023-sql-server:
     main:                Main.hs
     source-dirs:         server 

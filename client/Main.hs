@@ -3,11 +3,14 @@ module Main (main) where
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Free (Free (..))
 import Data.Functor((<&>))
+import Network.Wreq 
+import Network.HTTP.Client
 import Data.Time ( UTCTime, getCurrentTime )
 import Data.List qualified as L
 import Lib1 qualified
 import Lib2 qualified
 import Lib3 qualified
+import Lib4 qualified
 import System.Console.Repline
   ( CompleterStyle (Word),
     ExitDecision (Exit),
@@ -20,13 +23,15 @@ import System.Console.Terminal.Size (Window, size, width)
 import Lib2 (tableNameParser)
 import System.Directory (doesFileExist, getDirectoryContents)
 import System.FilePath (pathSeparator)
+
+
 type Repl a = HaskelineT IO a
 final :: Repl ExitDecision
 final = do
   liftIO $ putStrLn "Goodbye!"
   return Exit
 ini :: Repl ()
-ini = liftIO $ putStrLn "Welcome to select-manipulate database! Press [TAB] for auto completion."
+ini = liftIO $ putStrLn "Welcome to client-server database! Press [TAB] for auto completion."
 completer :: (Monad m) => WordCompleter m
 completer n = do
   let names = [
@@ -52,7 +57,8 @@ cmd c = do
       case df of 
         Left err -> return $ Left err
         Right maybeTable -> do 
-          let table = 
+          let table = toTable $ res ^. Network.Wreq.responseBody :: Maybe SqlTableFromYaml
+          let isTable = iWillMaybeGetTable table 
           case isTable of
             Just tableIs -> return $ Lib1.renderDataFrameAsTable s <$> (dataFrame isTable)
             Nothing -> return $ Left "The response contained of a bad table, we are extremely sorry"

@@ -127,7 +127,7 @@ executable fp2023-sql-client
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson
-    , base >=4.7 && <5
+    , base
     , bytestring
     , directory
     , extra
@@ -135,9 +135,11 @@ executable fp2023-sql-client
     , fp2023
     , free
     , http-client
+    , http-client-tls
     , lens
     , pretty
     , repline
+    , scotty
     , terminal-size
     , time
     , wreq
@@ -165,10 +167,12 @@ executable fp2023-sql-server
     , http-types
     , mtl
     , repline
+    , scotty
     , stm
     , terminal-size
     , text
     , time
+    , yaml
   default-language: Haskell2010
 
 test-suite fp2023-test

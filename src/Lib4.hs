@@ -11,7 +11,10 @@ module Lib4
     SqlTableFromYaml,
     fromStatement,
     toTable,
-    toDataframe
+    toDataframe,
+    SqlException(..),
+    SqlTableFromYaml(..),
+    fromException
   ) 
 where
 
@@ -135,6 +138,7 @@ data ParsedStatement3 =
   | ShowTables { }
     deriving (Show, Eq)
 
+
 ------------------for communication starts-------------
 
 
@@ -154,6 +158,7 @@ data SqlTableFromYaml = SqlTableFromYaml {
   columnsYAML :: [ColumnFromYaml],
   rowsYAML :: [RowFromYAML]
 } deriving (Generic)
+
 
 data ColumnFromYaml = ColumnFromYaml{
   columnNameYAML :: String,
@@ -197,6 +202,7 @@ toException yasm = decode $ BS.pack yasm
 
 fromTable :: SqlTableFromYaml -> String
 fromTable table = BS.unpack (encode table)
+
 
 fromStatement :: SqlStatement -> String
 fromStatement statement = BS.unpack (encode statement)

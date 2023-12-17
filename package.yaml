@@ -112,6 +112,9 @@ executables:
     - time
     - directory
     - filepath
+    - base 
+    - http-client-tls
+    - scotty
   fp2023-sql-server:
     main:                Main.hs
     source-dirs:         server 
@@ -131,9 +134,11 @@ executables:
     - aeson
     - time
     - free
+    - yaml
     - filepath
     - directory
     - stm
+    - scotty
 
 tests:
   fp2023-test:

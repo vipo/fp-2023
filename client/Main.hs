@@ -6,7 +6,7 @@ module Main (main) where
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.Free (Free (..))
 import Data.Functor((<&>))
-import Network.Wreq 
+ 
 import Control.Lens ((^.), view)
 import Data.Time ( UTCTime, getCurrentTime )
 import Data.List qualified as L
@@ -16,19 +16,16 @@ import Lib3 qualified
 import Lib4 qualified
 import DataFrame
 import InMemoryTables
-import Network.Wreq
 import Control.Lens
 import Data.Aeson (ToJSON, FromJSON)
 import Data.Yaml
-import Network.Wreq
 import GHC.Generics
 import Control.Lens
 import Data.Aeson (ToJSON, FromJSON)
 import Data.Yaml
-import Text.PrettyPrint
-import qualified Data.ByteString.Char8 as BS8
-import qualified Data.ByteString.Lazy.Char8 as BSLC8
 import qualified Data.ByteString.Lazy as BSL
+import Network.HTTP.Client
+import Network.HTTP.Client.TLS
 import System.Console.Repline
   ( CompleterStyle (Word),
     ExitDecision (Exit),
@@ -87,25 +84,26 @@ cmd input = do
   where
     terminalWidth :: Integral n => Maybe (Window n) -> n
     terminalWidth = maybe 80 width
-
-
+            
 
 sendQuery :: String -> IO (Either ErrorMessage DataFrame)
 sendQuery query = do
-    let yamlPayload = encode query
-    let headersList = [("Content-Type", "application/x-yaml")]
-    httpResponse <- postWith (defaults & Network.Wreq.headers .~ headersList) "http://localhost:3000/query" yamlPayload
-    let decodedResponse = case decodeEither (httpResponse ^. responseBody) of
-                            Left decodeErr -> Left $ "Error decoding YAML: " ++ prettyPrintParseException decodeErr
-                            Right r -> Right r
-    case decodedResponse of
-        Left errMsg -> return $ Left errMsg
-        Right serverResp ->
-            case (responseRight serverResp, responseLeft serverResp) of
-                (Just df, _) -> return $ Right df
-                (_, Just errMsg) -> return $ Left errMsg
-                _ -> return $ Left "Invalid server response"
-            
+    let yamlData = query
+    initialRequest <- parseRequest "http://localhost:1395/query"
+    let request = initialRequest
+            { method = "POST"
+            , requestBody = RequestBodyLBS $ BSL.toStrict $ encode yamlData
+            , requestHeaders = [("Content-Type", "application/yaml")]
+            }
+
+    manager <- newManager tlsManagerSettings
+    response <- httpLbs request manager
+
+    case decode (BSL.toStrict $ responseBody response) :: Maybe DataFrame of
+      Just df -> return $ Right df
+      Nothing -> return $ Left "Failed to decode DataFrame"
+
+
 main :: IO ()
 main =
   evalRepl (const $ pure ">>> ") cmd [] Nothing Nothing (Word completer) ini final

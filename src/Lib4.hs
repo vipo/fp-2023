@@ -171,7 +171,7 @@ instance FromJSON SqlTableFromYaml
 --------------------------------------------
 -- also no clue ar tikra taip
 toTable :: String -> Maybe SqlTableFromYaml
-toTable yasm = decode $ BSL.toStrict $ BS.pack yasm
+toTable yasm = decode $ BS.pack yasm
 
 toStatement :: String -> Maybe SqlStatement
 toStatement yasm = decode $ BS.pack yasm
@@ -180,13 +180,13 @@ toException :: String -> Maybe SqlException
 toException yasm = decode $ BS.pack yasm
 
 fromTable :: SqlTableFromYaml -> String
-fromTable table = encode table
+fromTable table = BS.unpack (encode table)
 
 fromStatement :: SqlStatement -> String
-fromStatement statement = encode statement
+fromStatement statement = BS.unpack (encode statement)
 
 fromException :: SqlException -> String
-fromException exception = encode exception
+fromException exception = BS.unpack (encode exception)
 
 
 toDataframe :: SqlTableFromYaml -> DataFrame

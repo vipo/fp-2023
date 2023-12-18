@@ -44,6 +44,8 @@ library:
   - transformers
   - aeson
   - bytestring
+  - yaml
+  - lens
 
 executables:
   fp2023-select-all:
@@ -87,8 +89,35 @@ executables:
     - filepath
     - directory
     - bytestring
+  fp2023-sql-client:
+    main:                Main.hs
+    source-dirs:         client
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - fp2023
+    - pretty 
+    - extra
+    - repline
+    - terminal-size
+    - wreq
+    - aeson
+    - lens
+    - yaml
+    - bytestring
+    - http-client
+    - free
+    - time
+    - directory
+    - filepath
+    - base 
+    - http-client-tls
+    - scotty
+    - text
   fp2023-sql-server:
-    main:                Server.hs
+    main:                Main.hs
     source-dirs:         server 
     ghc-options:
     - -threaded
@@ -106,26 +135,13 @@ executables:
     - aeson
     - time
     - free
+    - yaml
     - filepath
     - directory
     - stm
-  fp2023-sql-client:
-    main:                Client.hs
-    source-dirs:         client
-    ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
-    dependencies:
-    - fp2023
-    - extra
-    - repline
-    - terminal-size
-    - wreq
-    - aeson
-    - lens
+    - scotty
+    - text
     - bytestring
-    - http-client
 
 tests:
   fp2023-test:

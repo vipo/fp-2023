@@ -1,7 +1,28 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveGeneric #-}
 
-module Lib4() where
+module Lib4
+  (
+    ParsedStatement3, 
+    parseStatement,
+    SqlStatement(..), 
+    fromStatement,
+    toTable,
+    toDataframe,
+    SqlException(..),
+    SqlTableFromYAML(..),
+    fromException,
+    toStatement,
+    ValueFromYAML,
+    RowFromYAML,
+    ColumnFromYAML,
+    fromTable,
+    fromDataFrame
+  ) 
+where
+
 import Lib2(dropWhiteSpaces, getOperand, stringToInt, isNumber, areSpacesBetweenWords, splitStatementAtParentheses, tableNameParser)
 import Control.Applicative(Alternative(empty, (<|>)),optional, some, many)
 import Control.Monad.Trans.State.Strict (State, StateT, get, put, runState, runStateT, state)
@@ -13,15 +34,24 @@ import DataFrame as DF
 import Data.Char (isDigit)
 import GHC.IO.Handle (NewlineMode(inputNL))
 import Data.List (isPrefixOf, nub)
+import Data.Yaml
+import GHC.Generics
+import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Lazy.Char8 as BSL
+
 
 type ColumnName = String
 type Error = String
-type Parser a = EitherT Error (State String) a
+type Parser4 a = EitherT Error (State String) a
+
 data AscDesc = Asc String | Desc String
   deriving (Show, Eq)
-data OrderByValue = ColumnName ColumnName | ColumnNumber Integer 
+
+data OrderByValue = ColumnTable (TableName, ColumnName) | ColumnName ColumnName | ColumnNumber Integer 
   deriving (Show, Eq)
+
 type OrderBy = [(OrderByValue, AscDesc)]
+
 type TableName = String
 type FileContent = String
 type DeserializedContent = (TableName, DataFrame)
@@ -51,7 +81,7 @@ type AggregateList = [(AggregateFunction, ColumnName)]
 data SpecialSelect = SelectAggregate AggregateList | SelectColumns [ColumnName]
   deriving (Show, Eq)
 
-data Operand = ColumnOperand ColumnName | ConstantOperand Value | ColumnTableOperand (TableName, ColumnName)
+data Operand = ColumnOperand ColumnName | ConstantOperand DF.Value | ColumnTableOperand (TableName, ColumnName)
   deriving (Show, Eq)
 
 data Operator =
@@ -114,9 +144,156 @@ data ParsedStatement3 =
     deriving (Show, Eq)
 
 
+------------------for communication starts-------------
+data SqlStatement = SqlStatement {
+  statement :: String
+} deriving (Generic, Show)
+
+data SqlException = SqlException {
+  exception :: String
+} deriving (Generic)
+
+data SqlTableFromYAML = SqlTableFromYAML {
+  columnsYAML :: ColumnsFromYAML,
+  rowsYAML :: RowsFromYAML
+} deriving (Generic)
+
+data ColumnsFromYAML = ColumnsFromYAML{
+  columnListYAML :: [ColumnFromYAML]
+  } deriving (Generic)
+
+data ColumnFromYAML = ColumnFromYAML{
+  columnNameYAML :: String,
+  columnTypeYAML :: String
+} deriving (Generic)
+
+data RowsFromYAML = RowsFromYAML{
+  rowListYAML :: [RowFromYAML]
+  } deriving (Generic)
+
+data RowFromYAML = RowFromYAML{
+  rowYAML :: [ValueFromYAML]
+} deriving (Generic)
+
+data ValueFromYAML = ValueFromYAML{
+  valueYAML :: String
+} deriving (Generic, Show)
+
+--------------------------------------------
+--patikrinto instances kai nebereks Data.Yaml, nes tada matysis ar fromJSON ar fromYAML palaiko ir kurios bybles pasiekia (man is kazkur aeson traukia) 
+instance FromJSON SqlException
+instance FromJSON SqlStatement
+instance FromJSON SqlTableFromYAML
+instance FromJSON ColumnsFromYAML
+instance FromJSON RowsFromYAML
+instance FromJSON ColumnFromYAML
+instance FromJSON RowFromYAML
+instance FromJSON ValueFromYAML
+
+
+instance ToJSON SqlException
+instance ToJSON SqlStatement
+instance ToJSON SqlTableFromYAML
+instance ToJSON ColumnsFromYAML
+instance ToJSON RowsFromYAML
+instance ToJSON ColumnFromYAML
+instance ToJSON RowFromYAML
+instance ToJSON ValueFromYAML
+--------------------------------------------
+-- also no clue ar tikra taip
+toTable :: String -> Maybe SqlTableFromYAML
+toTable yasm = decode $ BS.pack yasm
+
+toStatement :: String -> Maybe SqlStatement
+toStatement yasm = decode $ BS.pack yasm
+
+toException :: String -> Maybe SqlException
+toException yasm = decode $ BS.pack yasm
+
+fromTable :: SqlTableFromYAML -> String
+fromTable table = BS.unpack (encode table)
+
+fromStatement :: SqlStatement -> String
+fromStatement statement = BS.unpack (encode statement)
+
+fromException :: SqlException -> String
+fromException exception = BS.unpack (encode exception)
+
+
+toDataframe :: SqlTableFromYAML -> DataFrame
+toDataframe table =
+  DataFrame
+    (map (\col -> Column (columnNameYAML col) (toColumnType $ columnTypeYAML col)) $ columnListYAML $ columnsYAML table)
+    (map (map convertToValue . rowYAML) $ rowListYAML $ rowsYAML table)
+
+
+toColumnType :: String -> ColumnType
+toColumnType "IntegerType" = IntegerType
+toColumnType "StringType"  = StringType
+toColumnType "BoolType"    = BoolType
+toColumnType _         = error "Unsupported data type"
+
+convertToValue :: ValueFromYAML -> DF.Value
+convertToValue (ValueFromYAML str) =
+  case splitFirstWord str of
+    ("IntegerValue", val) -> DF.IntegerValue (read val)
+    ("StringValue", val) -> DF.StringValue val
+    ("BoolValue", "True") -> DF.BoolValue True
+    ("BoolValue", "False") -> DF.BoolValue False
+    ("NullValue", _) -> DF.NullValue
+    _ -> error $ "Invalid FromJSONValue format: " ++ str
+
+splitFirstWord :: String -> (String, String)
+splitFirstWord str =
+  case break (\c -> c == ' ' || c == '\t') str of
+    (first, rest) -> (first, dropWhile (\c -> c == ' ' || c == '\t') rest)
+
+
+fromDataFrame :: DataFrame -> SqlTableFromYAML
+fromDataFrame (DataFrame col row) = SqlTableFromYAML {
+  columnsYAML = fromColumns col,
+  rowsYAML = fromRows row
+}
+
+fromColumns :: [Column] -> ColumnsFromYAML
+fromColumns [] = ColumnsFromYAML { columnListYAML = [] }
+fromColumns (x:xs) = ColumnsFromYAML {
+  columnListYAML = fromColumn x : columnListYAML (fromColumns xs)
+}
+
+fromColumn :: Column -> ColumnFromYAML
+fromColumn (Column name colType) = ColumnFromYAML {
+  columnNameYAML = name,
+  columnTypeYAML = show colType
+}
+
+fromRows :: [Row] -> RowsFromYAML
+fromRows [] = RowsFromYAML {rowListYAML = []}
+fromRows (x:xs) = RowsFromYAML {
+  rowListYAML = fromRow x : rowListYAML (fromRows xs)
+}
+
+
+fromRow :: Row -> RowFromYAML
+fromRow [] = RowFromYAML { rowYAML = [] }
+fromRow (x:xs) = RowFromYAML {
+  rowYAML = fromValue x : rowYAML (fromRow xs)
+}
+
+
+fromValue :: DF.Value -> ValueFromYAML
+fromValue value = ValueFromYAML{
+  valueYAML = show value
+}
+
+-----------------for communication ends----------------
+
+
+
 newtype EitherT e m a = EitherT {
     runEitherT :: m (Either e a)
 }
+
 
 instance MonadTrans (EitherT e) where
   lift :: Monad m => m a -> EitherT e m a
@@ -161,7 +338,7 @@ parseStatement input = do
   (_,_) <- runParser stopParseAt remain
   return query
   where
-    p :: Parser ParsedStatement3
+    p :: Parser4 ParsedStatement3
     p = showTableParser
                <|> showTablesParser
                <|> selectStatementParser
@@ -174,7 +351,7 @@ parseStatement input = do
                <|> dropTableParser
 
 
-dropTableParser :: Parser ParsedStatement3
+dropTableParser :: Parser4 ParsedStatement3
 dropTableParser = do
     _ <- queryStatementParser "drop"
     _ <- whitespaceParser
@@ -183,7 +360,7 @@ dropTableParser = do
     table <- columnNameParser 
     pure $ DropTable table
 
-createTableParser :: Parser ParsedStatement3
+createTableParser :: Parser4 ParsedStatement3
 createTableParser = do
     _ <- queryStatementParser "create"
     _ <- whitespaceParser
@@ -199,7 +376,7 @@ createTableParser = do
     _ <- optional whitespaceParser
     pure $ CreateTable table columnsAndTypes
 
-runParser :: Parser a -> String -> Either Error (a, String)
+runParser :: Parser4 a -> String -> Either Error (a, String)
 runParser parser input = 
     let eitherResult = runState (runEitherT parser) input
     in case eitherResult of
@@ -219,7 +396,7 @@ instance (IsString e) => Alternative (EitherT e (State s)) where
 
 ----------------------------------------------------------------------------------
 
-insertParser :: Parser ParsedStatement3
+insertParser :: Parser4 ParsedStatement3
 insertParser = do
     _ <- queryStatementParser "insert"
     _ <- whitespaceParser
@@ -236,7 +413,7 @@ insertParser = do
     _ <- queryStatementParser ")"
     pure $ Insert tableName selectUpdate values
 
-selectDataParsers :: Parser SelectedColumns
+selectDataParsers :: Parser4 SelectedColumns
 selectDataParsers = tryParseColumn
   where
     tryParseColumn = do
@@ -245,43 +422,43 @@ selectDataParsers = tryParseColumn
       _ <- queryStatementParser ")"
       return $ ColumnsSelected columnNames
 
-insertedValuesParser :: Parser InsertedValues
+insertedValuesParser :: Parser4 InsertedValues
 insertedValuesParser = do
   values <- seperate valueParser (queryStatementParser "," >> optional whitespaceParser)
   return values
 
-valueParser :: Parser DF.Value
+valueParser :: Parser4 DF.Value
 valueParser = parseNullValue <|> parseBoolValue <|> parseStringValue <|> parseNumericValue
 
-parseNullValue :: Parser DF.Value
+parseNullValue :: Parser4 DF.Value
 parseNullValue = queryStatementParser "null" >> return NullValue
 
-parseBoolValue :: Parser DF.Value
+parseBoolValue :: Parser4 DF.Value
 parseBoolValue =
   (queryStatementParser "true" >> return (BoolValue True))
   <|> (queryStatementParser "false" >> return (BoolValue False))
 
-parseStringValue :: Parser DF.Value
+parseStringValue :: Parser4 DF.Value
 parseStringValue = do
   strValue <- parseStringWithQuotes
   return (StringValue strValue)
 
-parseStringWithQuotes :: Parser String
+parseStringWithQuotes :: Parser4 String
 parseStringWithQuotes = do
   _ <- queryStatementParser "'"
   str <- some (parseSatisfy (/= '\''))
   _ <- queryStatementParser "'"
   return str
 
-parseNumericValue :: Parser DF.Value
+parseNumericValue :: Parser4 DF.Value
 parseNumericValue = IntegerValue <$> parseInt
 
-parseInt :: Parser Integer
+parseInt :: Parser4 Integer
 parseInt = do
   digits <- some (parseSatisfy isDigit)
   return (read digits)
 
-deleteParser :: Parser ParsedStatement3
+deleteParser :: Parser4 ParsedStatement3
 deleteParser = do
     _ <- queryStatementParser "delete"
     _ <- whitespaceParser
@@ -291,7 +468,7 @@ deleteParser = do
     conditions <- optional whereParser
     pure $ Delete tableName conditions
 
-updateParser :: Parser ParsedStatement3
+updateParser :: Parser4 ParsedStatement3
 updateParser = do
     _ <- queryStatementParser "update"
     _ <- whitespaceParser
@@ -300,14 +477,15 @@ updateParser = do
     selectedWhere <- optional whereParser
     pure $ Update tableName selectUpdated selectedWhere
 
-setParser :: Parser WhereSelect
+setParser :: Parser4 WhereSelect
 setParser = do
   _ <- whitespaceParser
   _ <- queryStatementParser "set"
   _ <- whitespaceParser
   seperate whereConditionParser (optional whitespaceParser >> char ',' >> optional whitespaceParser)
 
-selectAllParser :: Parser ParsedStatement3
+
+selectAllParser :: Parser4 ParsedStatement3
 selectAllParser = do
   _ <- queryStatementParser "select"
   _ <- whitespaceParser
@@ -323,23 +501,21 @@ selectAllParser = do
   pure $ SelectAll tableArray selectWhere orderBy
 
 --------------------------order by----------------------------------
-orderByParser :: Parser OrderBy
+orderByParser :: Parser4 OrderBy
 orderByParser = do
   some orderValuesParser
   where 
-    orderValuesParser :: Parser (OrderByValue, AscDesc)
+    orderValuesParser :: Parser4 (OrderByValue, AscDesc)
     orderValuesParser = do
       value <- orderByValueParser
       ascDesc <- ascDescParser
       _ <- optional (whitespaceParser >> char ',')
       pure (value, ascDesc)
 
-orderByValueParser :: Parser OrderByValue
-orderByValueParser = do
-  value <- (ColumnName <$> columnNameParser) <|> (ColumnNumber <$> numberParser)
-  return value
+orderByValueParser :: Parser4 OrderByValue
+orderByValueParser = do (ColumnTable <$> columnNameTableParser) <|> (ColumnName <$> columnNameParser) <|> (ColumnNumber <$> numberParser)
 
-ascDescParser :: Parser AscDesc
+ascDescParser :: Parser4 AscDesc
 ascDescParser = tryParseDesc <|> tryParseAsc <|> tryParseSymbol
   where
     tryParseDesc = do
@@ -353,9 +529,8 @@ ascDescParser = tryParseDesc <|> tryParseAsc <|> tryParseSymbol
     tryParseSymbol = do
       _ <- optional whitespaceParser
       return $ Asc "asc"
------------------------------------------------------------------
 
-selectNowParser :: Parser ParsedStatement3
+selectNowParser :: Parser4 ParsedStatement3
 selectNowParser = do
     _ <- queryStatementParser "select"
     _ <- whitespaceParser
@@ -366,7 +541,8 @@ selectNowParser = do
     _ <- queryStatementParser ")"
     pure SelectNow
 
-selectStatementParser :: Parser ParsedStatement3
+
+selectStatementParser :: Parser4 ParsedStatement3
 selectStatementParser = do
     _ <- queryStatementParser "select"
     _ <- whitespaceParser
@@ -381,7 +557,8 @@ selectStatementParser = do
     _ <- optional whitespaceParser
     pure $ Select specialSelect tableArray selectWhere orderBy
 
-selectDataParser :: Parser SpecialSelect2
+
+selectDataParser :: Parser4 SpecialSelect2
 selectDataParser = tryParseAggregate <|>  tryParseColumn <|> tryParseColumnTable
   where
     tryParseAggregate = do
@@ -400,7 +577,7 @@ selectDataParser = tryParseAggregate <|>  tryParseColumn <|> tryParseColumnTable
       _ <- trashParser
       return $ SelectedColumnsTables columnsWithTables nowf
 
-aggregateParser' :: Parser Aggregate2
+aggregateParser' :: Parser4 Aggregate2
 aggregateParser' = tryColumnTables <|> tryColumns
   where 
     tryColumns = do
@@ -422,7 +599,7 @@ aggregateParser' = tryColumnTables <|> tryColumns
       _ <- char ')'
       return $ AggregateColumnTable (func, columnName)
 
-nowParser :: Parser NowFunction
+nowParser :: Parser4 NowFunction
 nowParser = do
   _ <- optional whitespaceParser
   _ <- queryStatementParser "now"
@@ -435,23 +612,23 @@ nowParser = do
   _ <- optional whitespaceParser
   pure Now
 
-whereParser :: Parser WhereSelect
+whereParser :: Parser4 WhereSelect
 whereParser = do
   _ <- whitespaceParser
   _ <- queryStatementParser "where"
   _ <- whitespaceParser
   some whereAndExist
   where
-    whereAndExist :: Parser Condition
+    whereAndExist :: Parser4 Condition
     whereAndExist = do
       condition <- whereConditionParser
       _ <- optional (whitespaceParser >> andParser)
       pure condition
 
-andParser :: Parser And
+andParser :: Parser4 And
 andParser = queryStatementParser "and" >> pure And
 
-whereConditionParser :: Parser Condition
+whereConditionParser :: Parser4 Condition
 whereConditionParser = do
   _ <- optional whitespaceParser
   operand1 <- operandParser
@@ -461,12 +638,12 @@ whereConditionParser = do
   operand2 <- operandParser
   return $ Condition operand1 operator operand2
 
-operandParser :: Parser Operand
+operandParser :: Parser4 Operand
 operandParser = (ConstantOperand <$> constantParser)
                <|> (ColumnTableOperand <$> columnNameTableParser)
                <|> (ColumnOperand <$> columnNameParser)
 
-columnNameTableParser :: Parser (TableName, ColumnName)
+columnNameTableParser :: Parser4 (TableName, ColumnName)
 columnNameTableParser = do
   table <- columnNameParser
   _ <- char '.'
@@ -475,14 +652,14 @@ columnNameTableParser = do
 
 -------------------------------------------------------------------------------
 
-selectTablesParser :: Parser TableArray
+selectTablesParser :: Parser4 TableArray
 selectTablesParser = tryParseTable
   where
     tryParseTable = do
       tableNames <- seperate columnNameParser (optional whitespaceParser >> char ',' *> optional whitespaceParser)
       return $ tableNames
 
-showTablesParser :: Parser ParsedStatement3
+showTablesParser :: Parser4 ParsedStatement3
 showTablesParser = do
     _ <- queryStatementParser "show"
     _ <- whitespaceParser
@@ -492,7 +669,7 @@ showTablesParser = do
 
 -----------------------------------------------------------------------------------------------------------
 
-showTableParser :: Parser ParsedStatement3
+showTableParser :: Parser4 ParsedStatement3
 showTableParser = do
     _ <- queryStatementParser "show"
     _ <- whitespaceParser
@@ -502,10 +679,10 @@ showTableParser = do
     _ <- optional whitespaceParser
     pure $ Lib4.ShowTable table
 
-columnListParser :: Parser [Column]
+columnListParser :: Parser4 [Column]
 columnListParser = seperate columnAndTypeParser (optional whitespaceParser >> char ',' *> optional whitespaceParser)
 
-columnAndTypeParser :: Parser Column
+columnAndTypeParser :: Parser4 Column
 columnAndTypeParser = do
     columnName <- columnNameParser
     _ <- whitespaceParser
@@ -519,14 +696,14 @@ columnTypeParser "bool" = Right BoolType
 columnTypeParser other = Left $ "There is no such type as: " ++ other
 
 --sitas gali ir neveikti:
-parseSatisfy :: (Char -> Bool) -> Parser Char
+parseSatisfy :: (Char -> Bool) -> Parser4 Char
 parseSatisfy pr = EitherT $ state $ \input ->
   case input of
     (x:xs) -> if pr x then (Right x, xs) else (Left ("Unexpected character: " ++ [x]), input)
     [] -> (Left "Empty input", input)
 
 --sitas gali ir neveikti:
-queryStatementParser :: String -> Parser String
+queryStatementParser :: String -> Parser4 String
 queryStatementParser stmt = do
   input <- lift get
   case take (length stmt) input of
@@ -537,7 +714,7 @@ queryStatementParser stmt = do
         return xs
       | otherwise -> throwE $ "Expected " ++ stmt ++ " or query contains unnecessary words"
 
-whitespaceParser :: Parser String
+whitespaceParser :: Parser4 String
 whitespaceParser = do
   input <- lift get
   case span isSpace input of
@@ -546,13 +723,13 @@ whitespaceParser = do
       lift $ put remain
       return ws
 
-seperate :: Parser a -> Parser b -> Parser [a]
+seperate :: Parser4 a -> Parser4 b -> Parser4 [a]
 seperate p sep = do
     x <- p
     xs <- many (sep *> p)
     return (x:xs)
 
-columnNameParser :: Parser ColumnName
+columnNameParser :: Parser4 ColumnName
 columnNameParser = do
   input <- lift get
   case takeWhile (\x -> isAlphaNum x || x == '_') input of
@@ -561,7 +738,7 @@ columnNameParser = do
       lift $ put $ drop (length xs) input
       return xs
 
-char :: Char -> Parser Char
+char :: Char -> Parser4 Char
 char c = do
   input <- lift get
   case input of
@@ -571,7 +748,8 @@ char c = do
                             return c
                         else throwE ("Expected " ++ [c])
 
-numberParser :: Parser Integer
+
+numberParser :: Parser4 Integer
 numberParser = do
   input <- lift get
   case takeWhile (\x -> isDigit x) input of
@@ -580,7 +758,7 @@ numberParser = do
       lift $ put $ drop (length xs) input
       return $ stringToInt xs
 
-trashParser :: Parser Trash 
+trashParser :: Parser4 Trash 
 trashParser = do
   input <- lift get
   case head input == ',' of 
@@ -591,7 +769,7 @@ trashParser = do
                 return $ Trash ""
       False -> throwE "Columns are not listed right or aggregate functions and column names cannot be mixed"
 
-constantParser :: Parser Value
+constantParser :: Parser4 DF.Value
 constantParser = do
   input <- lift get
   case input == "" of 
@@ -622,7 +800,7 @@ constantParser = do
           True -> throwE "The conditions are missing"
 
 
-columnNameParser' :: Parser ColumnName
+columnNameParser' :: Parser4 ColumnName
 columnNameParser' = do
   input <- lift get
   (if areSpacesBetweenWords (fst (splitStatementAtParentheses input)) 
@@ -632,7 +810,7 @@ columnNameParser' = do
   else throwE "There is more than one column name in aggregation function")
 
 
-columnNameParser'' :: Parser ColumnName
+columnNameParser'' :: Parser4 ColumnName
 columnNameParser'' = do
   input <- lift get
   (if areSpacesBetweenWords (fst (splitStatementAtParentheses input)) 
@@ -641,7 +819,7 @@ columnNameParser'' = do
             return $ dropWhiteSpaces (fst (splitStatementAtParentheses input))
   else throwE "There is more than one column name in aggregation function")
 
-operatorParser :: Parser Operator
+operatorParser :: Parser4 Operator
 operatorParser = 
   (queryStatementParser "=" >> pure IsEqualTo)
   <|> (queryStatementParser "!=" >> pure IsNotEqual)
@@ -650,7 +828,7 @@ operatorParser =
   <|> (queryStatementParser "<=" >> pure IsLessOrEqual)
   <|> (queryStatementParser ">=" >> pure IsGreaterOrEqual)
 
-aggregateFunctionParser :: Parser AggregateFunction
+aggregateFunctionParser :: Parser4 AggregateFunction
 aggregateFunctionParser = sumParser <|> maxParser
   where
     sumParser = do
@@ -660,13 +838,13 @@ aggregateFunctionParser = sumParser <|> maxParser
         _ <- queryStatementParser "max"
         pure Max
 
-stopParseAt :: Parser String
+stopParseAt :: Parser4 String
 stopParseAt  = do
   _ <- optional whitespaceParser
   _ <- queryStatementParser ";"
   checkAfterQuery
   where
-    checkAfterQuery :: Parser String
+    checkAfterQuery :: Parser4 String
     checkAfterQuery = do
       query <- lift get
       case query of

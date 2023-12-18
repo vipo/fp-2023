@@ -54,8 +54,10 @@ library
     , base >=4.7 && <5
     , bytestring
     , free
+    , lens
     , time
     , transformers
+    , yaml
   default-language: Haskell2010
 
 executable fp2023-manipulate
@@ -115,7 +117,7 @@ executable fp2023-select-more
   default-language: Haskell2010
 
 executable fp2023-sql-client
-  main-is: Client.hs
+  main-is: Main.hs
   other-modules:
       Paths_fp2023
   hs-source-dirs:
@@ -125,19 +127,28 @@ executable fp2023-sql-client
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson
-    , base >=4.7 && <5
+    , base
     , bytestring
+    , directory
     , extra
+    , filepath
     , fp2023
+    , free
     , http-client
+    , http-client-tls
     , lens
+    , pretty
     , repline
+    , scotty
     , terminal-size
+    , text
+    , time
     , wreq
+    , yaml
   default-language: Haskell2010
 
 executable fp2023-sql-server
-  main-is: Server.hs
+  main-is: Main.hs
   other-modules:
       Paths_fp2023
   hs-source-dirs:
@@ -149,6 +160,7 @@ executable fp2023-sql-server
       Spock
     , aeson
     , base >=4.7 && <5
+    , bytestring
     , directory
     , extra
     , filepath
@@ -157,10 +169,12 @@ executable fp2023-sql-server
     , http-types
     , mtl
     , repline
+    , scotty
     , stm
     , terminal-size
     , text
     , time
+    , yaml
   default-language: Haskell2010
 
 test-suite fp2023-test

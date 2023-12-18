@@ -52,7 +52,7 @@ data OrderByValue = ColumnTable (TableName, ColumnName) | ColumnName ColumnName 
 
 type OrderBy = [(OrderByValue, AscDesc)]
 
-type TableName = String 
+type TableName = String
 type FileContent = String
 type DeserializedContent = (TableName, DataFrame)
 type ErrorMessage = String
@@ -350,6 +350,7 @@ parseStatement input = do
                <|> createTableParser
                <|> dropTableParser
 
+
 dropTableParser :: Parser4 ParsedStatement3
 dropTableParser = do
     _ <- queryStatementParser "drop"
@@ -483,6 +484,7 @@ setParser = do
   _ <- whitespaceParser
   seperate whereConditionParser (optional whitespaceParser >> char ',' >> optional whitespaceParser)
 
+
 selectAllParser :: Parser4 ParsedStatement3
 selectAllParser = do
   _ <- queryStatementParser "select"
@@ -513,7 +515,6 @@ orderByParser = do
 orderByValueParser :: Parser4 OrderByValue
 orderByValueParser = do (ColumnTable <$> columnNameTableParser) <|> (ColumnName <$> columnNameParser) <|> (ColumnNumber <$> numberParser)
 
-
 ascDescParser :: Parser4 AscDesc
 ascDescParser = tryParseDesc <|> tryParseAsc <|> tryParseSymbol
   where
@@ -529,8 +530,6 @@ ascDescParser = tryParseDesc <|> tryParseAsc <|> tryParseSymbol
       _ <- optional whitespaceParser
       return $ Asc "asc"
 
------------------------------------------------------------------
-
 selectNowParser :: Parser4 ParsedStatement3
 selectNowParser = do
     _ <- queryStatementParser "select"
@@ -541,6 +540,7 @@ selectNowParser = do
     _ <- optional whitespaceParser
     _ <- queryStatementParser ")"
     pure SelectNow
+
 
 selectStatementParser :: Parser4 ParsedStatement3
 selectStatementParser = do
@@ -556,6 +556,7 @@ selectStatementParser = do
     orderBy <- optional orderByParser
     _ <- optional whitespaceParser
     pure $ Select specialSelect tableArray selectWhere orderBy
+
 
 selectDataParser :: Parser4 SpecialSelect2
 selectDataParser = tryParseAggregate <|>  tryParseColumn <|> tryParseColumnTable
@@ -746,6 +747,7 @@ char c = do
                             lift $ put xs 
                             return c
                         else throwE ("Expected " ++ [c])
+
 
 numberParser :: Parser4 Integer
 numberParser = do

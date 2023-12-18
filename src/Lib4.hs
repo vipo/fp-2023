@@ -15,7 +15,10 @@ module Lib4
     SqlException(..),
     SqlTableFromYaml(..),
     fromException,
-    toStatement
+    toStatement,
+    ValueFromYAML,
+    RowFromYAML,
+    ColumnFromYaml
   ) 
 where
 
@@ -142,6 +145,7 @@ data ParsedStatement3 =
 
 ------------------for communication starts-------------
 
+------------------------------------------------------
 
 data SqlStatement = SqlStatement {
   statement :: String
@@ -160,13 +164,12 @@ data SqlTableFromYaml = SqlTableFromYaml {
   rowsYAML :: [RowFromYAML]
 } deriving (Generic)
 
-
 data ColumnFromYaml = ColumnFromYaml{
   columnNameYAML :: String,
   columnTypeYAML :: String
 } deriving (Generic)
 
-data RowFromYAML = RowRromYAML{
+data RowFromYAML = RowFromYAML{
   rowYaml :: [ValueFromYAML]
 } deriving (Generic)
 
@@ -211,7 +214,7 @@ fromStatement statement = BS.unpack (encode statement)
 fromException :: SqlException -> String
 fromException exception = BS.unpack (encode exception)
 
-
+------------------------------------------------
 toDataframe :: SqlTableFromYaml -> DataFrame
 toDataframe table =
   DataFrame
@@ -234,7 +237,34 @@ convertToValue (ValueFromYAML str) =
     ["NullValue"] -> NullValue
     _ -> error "Invalid FromJSONValue format"
 
+fromColumns :: [Column] -> SqlTableFromYaml
+fromColumns [] = SqlTableFromYaml {columnsYAML = []}
+fromColumns (x:xs) = SqlTableFromYaml {
+  columnsYAML = fromColumn x : columnsYAML (fromColumns xs)
+}
 
+fromColumn :: Column -> ColumnFromYaml
+fromColumn (Column name colType) = ColumnFromYaml {
+  columnNameYAML = name,
+  columnTypeYAML = show colType
+}
+
+fromRows :: [Row] -> SqlTableFromYaml
+fromRows [] = SqlTableFromYaml {rowsYAML = []}
+fromRows (x:xs) = SqlTableFromYaml {
+  rowsYAML = fromRow x : rowsYAML (fromRows xs)
+}
+
+fromRow :: Row -> RowFromYAML
+fromRow [] = RowFromYAML { rowYaml = [] }
+fromRow (x:xs) = RowFromYAML {
+  rowYaml = fromValue x : rowYaml (fromRow xs)
+}
+
+fromValue :: DF.Value -> ValueFromYAML
+fromValue value = ValueFromYAML{
+  valueYAML = show value
+}
 -----------------for communication ends----------------
 
 

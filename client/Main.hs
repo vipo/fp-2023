@@ -22,6 +22,7 @@ import GHC.Generics
 import Control.Lens
 import Data.Aeson (ToJSON, FromJSON)
 import qualified Data.ByteString.Lazy as BSL
+import Data.ByteString.Lazy.Char8 (unpack)
 import Network.HTTP.Client
 import Network.HTTP.Client.TLS
 import System.Console.Repline
@@ -81,19 +82,18 @@ cmd input = do
 sendQuery :: String -> IO (Either ErrorMessage DataFrame)
 sendQuery query = do
   let yamlData = BSL.fromStrict $ encodeUtf8 $ pack query
-  initialRequest <- parseRequest "http://localhost:1395/query"
+  initialRequest <- parseRequest "http://localhost:3000/query"
   let request = initialRequest
         { method = "POST"
         , requestBody = RequestBodyLBS yamlData
         , requestHeaders = [("Content-Type", "application/yaml")]
         }
-
   manager <- newManager tlsManagerSettings
   response <- httpLbs request manager
-  return $ Left "it is halloween"
-  -- case decode (BSL.toStrict $ responseBody response) :: Maybe DataFrame of
-  --   Just df -> return $ Right df
-  --   Nothing -> return $ Left "Failed to decode DataFrame"
+  let responseBodyText = unpack (responseBody response)
+  let table = Lib4.toTable responseBodyText
+  let dataFrame = Lib4.toDataframe
+  return $ Right dataFrame ---CIA REIKIA FUNKCIJYTES
 
 
 

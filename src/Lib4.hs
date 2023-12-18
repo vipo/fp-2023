@@ -177,7 +177,7 @@ data RowFromYAML = RowFromYAML{
 
 data ValueFromYAML = ValueFromYAML{
   valueYAML :: String
-} deriving (Generic)
+} deriving (Generic, Show)
 
 --------------------------------------------
 --patikrinto instances kai nebereks Data.Yaml, nes tada matysis ar fromJSON ar fromYAML palaiko ir kurios bybles pasiekia (man is kazkur aeson traukia) 
@@ -235,13 +235,19 @@ toColumnType _         = error "Unsupported data type"
 
 convertToValue :: ValueFromYAML -> DF.Value
 convertToValue (ValueFromYAML str) =
-  case words str of
-    ["IntegerValue", val] -> IntegerValue (read val)
-    ["StringValue", val] -> StringValue val
-    ["BoolValue", "True"] -> BoolValue True
-    ["BoolValue", "False"] -> BoolValue False
-    ["NullValue"] -> NullValue
-    _ -> error "Invalid FromJSONValue format"
+  case splitFirstWord str of
+    ("IntegerValue", val) -> DF.IntegerValue (read val)
+    ("StringValue", val) -> DF.StringValue val
+    ("BoolValue", "True") -> DF.BoolValue True
+    ("BoolValue", "False") -> DF.BoolValue False
+    ("NullValue", _) -> DF.NullValue
+    _ -> error $ "Invalid FromJSONValue format: " ++ str
+
+splitFirstWord :: String -> (String, String)
+splitFirstWord str =
+  case break (\c -> c == ' ' || c == '\t') str of
+    (first, rest) -> (first, dropWhile (\c -> c == ' ' || c == '\t') rest)
+
 
 fromDataFrame :: DataFrame -> SqlTableFromYAML
 fromDataFrame (DataFrame col row) = SqlTableFromYAML {

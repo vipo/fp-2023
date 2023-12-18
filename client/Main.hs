@@ -13,6 +13,7 @@ import Lib2 qualified
 import Lib3 qualified
 import Lib4 qualified
 import DataFrame
+import Data.Maybe
 import Data.Text (pack)
 import Data.Text.Encoding (encodeUtf8)
 import InMemoryTables
@@ -37,6 +38,7 @@ import System.Console.Terminal.Size (Window, size, width)
 import Lib2 (tableNameParser)
 import System.Directory (doesFileExist, getDirectoryContents)
 import System.FilePath (pathSeparator)
+import Debug.Trace
 
 type Repl a = HaskelineT IO a
 final :: Repl ExitDecision
@@ -81,7 +83,7 @@ cmd input = do
 
 sendQuery :: String -> IO (Either ErrorMessage DataFrame)
 sendQuery query = do
-  let yamlData = BSL.fromStrict $ encodeUtf8 $ pack query
+  let yamlData = BSL.fromStrict $ encodeUtf8 $ pack (Lib4.fromStatement (Lib4.SqlStatement {Lib4.statement = query}))
   initialRequest <- parseRequest "http://localhost:3000/query"
   let request = initialRequest
         { method = "POST"
@@ -90,12 +92,21 @@ sendQuery query = do
         }
   manager <- newManager tlsManagerSettings
   response <- httpLbs request manager
+
+  -- Trace the responseBodyText for debugging
   let responseBodyText = unpack (responseBody response)
-  let table = Lib4.toTable responseBodyText
-  let dataFrame = Lib4.toDataframe
-  return $ Right dataFrame ---CIA REIKIA FUNKCIJYTES
+  traceM $ "Response Body Text: " ++ responseBodyText
 
+  -- Extracting the table from the response
+  let maybeTable = Lib4.toTable responseBodyText
 
+  -- Handling the Maybe value
+  case maybeTable of
+    Just table -> do
+      let dataFrame = Lib4.toDataframe table
+      return $ Right dataFrame
+    Nothing ->
+      return $ Left "Error: Failed to parse table from response."
 
 main :: IO ()
 main =

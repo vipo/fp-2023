@@ -16,6 +16,8 @@ import Data.List qualified as L
 import Lib1 qualified
 import Lib2 qualified
 import qualified Data.ByteString.Lazy.Char8 as BS8
+import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Internal as BSInternal
 import Lib3 qualified
 import Lib4 qualified
 import Data.Text.Lazy (fromStrict, pack)
@@ -33,6 +35,7 @@ import Lib2 (tableNameParser)
 import System.Directory (doesFileExist, getDirectoryContents)
 import System.FilePath (pathSeparator)
 import Data.Yaml
+import Debug.Trace
 
 type ThreadSafeTable = TVar (TableName, DataFrame)
 type ThreadSafeDataBase = TVar [ThreadSafeTable]
@@ -58,17 +61,30 @@ main = do
 
     scotty 3000 $ do
         post "/query" $ do
-            requestBody <- body
-            let parsed = Lib4.toStatement (BS8.unpack requestBody)
-            case parsed of
+          requestBody <- body
+          -- Trace the requestBody for debugging
+          let requestBodyStrict = BS.toStrict requestBody
+
+        -- Trace the requestBody for debugging
+          liftIO $ traceIO $ "Request Body: " ++ show (decodeUtf8 requestBodyStrict)
+
+          let parsed = Lib4.toStatement (BS8.unpack requestBody)
+          -- Trace the parsed value for debugging
+          liftIO $ traceIO $ "Parsed Value: " ++ show parsed
+
+          case parsed of
               Just query -> do
                   executionResult <- liftIO $ runExecuteIO threadSafeDatabase $ Lib3.executeSql (Lib4.statement query)
-                  liftIO $ print executionResult
-                  fromTable ()
+                  case executionResult of
+                      Right res -> do
+                          let result = Lib4.fromTable (Lib4.fromDataFrame res)
+                          text (pack result)
+                      
               Nothing -> do
                   let exception = Lib4.SqlException {Lib4.exception = "The query could not be decoded"}
                   let errorMessage = Lib4.fromException exception
                   text (pack errorMessage)
+
 
 runExecuteIO :: ThreadSafeDataBase -> Lib3.Execution r -> IO r
 runExecuteIO dataB (Pure r) = return r

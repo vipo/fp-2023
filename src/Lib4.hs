@@ -8,17 +8,18 @@ module Lib4
     ParsedStatement3, 
     parseStatement,
     SqlStatement(..), 
-    SqlTableFromYaml,
     fromStatement,
     toTable,
     toDataframe,
     SqlException(..),
-    SqlTableFromYaml(..),
+    SqlTableFromYAML(..),
     fromException,
     toStatement,
     ValueFromYAML,
     RowFromYAML,
-    ColumnFromYaml
+    ColumnFromYAML,
+    fromTable,
+    fromDataFrame
   ) 
 where
 
@@ -144,33 +145,34 @@ data ParsedStatement3 =
 
 
 ------------------for communication starts-------------
-
-------------------------------------------------------
-
 data SqlStatement = SqlStatement {
   statement :: String
-} deriving (Generic)
+} deriving (Generic, Show)
 
 data SqlException = SqlException {
   exception :: String
 } deriving (Generic)
 
--- data SqlTableFromYaml = SqlTableFromYaml {
---   tableYAML :: [ColumnFromYaml][RowFromYAML]
--- } deriving (Generic)
-
-data SqlTableFromYaml = SqlTableFromYaml {
-  columnsYAML :: [ColumnFromYaml],
-  rowsYAML :: [RowFromYAML]
+data SqlTableFromYAML = SqlTableFromYAML {
+  columnsYAML :: ColumnsFromYAML,
+  rowsYAML :: RowsFromYAML
 } deriving (Generic)
 
-data ColumnFromYaml = ColumnFromYaml{
+data ColumnsFromYAML = ColumnsFromYAML{
+  columnListYAML :: [ColumnFromYAML]
+  } deriving (Generic)
+
+data ColumnFromYAML = ColumnFromYAML{
   columnNameYAML :: String,
   columnTypeYAML :: String
 } deriving (Generic)
 
+data RowsFromYAML = RowsFromYAML{
+  rowListYAML :: [RowFromYAML]
+  } deriving (Generic)
+
 data RowFromYAML = RowFromYAML{
-  rowYaml :: [ValueFromYAML]
+  rowYAML :: [ValueFromYAML]
 } deriving (Generic)
 
 data ValueFromYAML = ValueFromYAML{
@@ -181,21 +183,25 @@ data ValueFromYAML = ValueFromYAML{
 --patikrinto instances kai nebereks Data.Yaml, nes tada matysis ar fromJSON ar fromYAML palaiko ir kurios bybles pasiekia (man is kazkur aeson traukia) 
 instance FromJSON SqlException
 instance FromJSON SqlStatement
-instance FromJSON SqlTableFromYaml
-instance FromJSON ColumnFromYaml
+instance FromJSON SqlTableFromYAML
+instance FromJSON ColumnsFromYAML
+instance FromJSON RowsFromYAML
+instance FromJSON ColumnFromYAML
 instance FromJSON RowFromYAML
 instance FromJSON ValueFromYAML
 
 
 instance ToJSON SqlException
 instance ToJSON SqlStatement
-instance ToJSON SqlTableFromYaml
-instance ToJSON ColumnFromYaml
+instance ToJSON SqlTableFromYAML
+instance ToJSON ColumnsFromYAML
+instance ToJSON RowsFromYAML
+instance ToJSON ColumnFromYAML
 instance ToJSON RowFromYAML
 instance ToJSON ValueFromYAML
 --------------------------------------------
 -- also no clue ar tikra taip
-toTable :: String -> Maybe SqlTableFromYaml
+toTable :: String -> Maybe SqlTableFromYAML
 toTable yasm = decode $ BS.pack yasm
 
 toStatement :: String -> Maybe SqlStatement
@@ -204,9 +210,8 @@ toStatement yasm = decode $ BS.pack yasm
 toException :: String -> Maybe SqlException
 toException yasm = decode $ BS.pack yasm
 
-fromTable :: SqlTableFromYaml -> String
+fromTable :: SqlTableFromYAML -> String
 fromTable table = BS.unpack (encode table)
-
 
 fromStatement :: SqlStatement -> String
 fromStatement statement = BS.unpack (encode statement)
@@ -214,12 +219,13 @@ fromStatement statement = BS.unpack (encode statement)
 fromException :: SqlException -> String
 fromException exception = BS.unpack (encode exception)
 
-------------------------------------------------
-toDataframe :: SqlTableFromYaml -> DataFrame
+
+toDataframe :: SqlTableFromYAML -> DataFrame
 toDataframe table =
   DataFrame
-    (map (\col -> Column (columnNameYAML col) (toColumnType $ columnTypeYAML col)) $ columnsYAML table)
-    (map (map convertToValue . rowYaml) $ rowsYAML table)
+    (map (\col -> Column (columnNameYAML col) (toColumnType $ columnTypeYAML col)) $ columnListYAML $ columnsYAML table)
+    (map (map convertToValue . rowYAML) $ rowListYAML $ rowsYAML table)
+
 
 toColumnType :: String -> ColumnType
 toColumnType "IntegerType" = IntegerType
@@ -237,34 +243,43 @@ convertToValue (ValueFromYAML str) =
     ["NullValue"] -> NullValue
     _ -> error "Invalid FromJSONValue format"
 
-fromColumns :: [Column] -> SqlTableFromYaml
-fromColumns [] = SqlTableFromYaml {columnsYAML = []}
-fromColumns (x:xs) = SqlTableFromYaml {
-  columnsYAML = fromColumn x : columnsYAML (fromColumns xs)
+fromDataFrame :: DataFrame -> SqlTableFromYAML
+fromDataFrame (DataFrame col row) = SqlTableFromYAML {
+  columnsYAML = fromColumns col,
+  rowsYAML = fromRows row
 }
 
-fromColumn :: Column -> ColumnFromYaml
-fromColumn (Column name colType) = ColumnFromYaml {
+fromColumns :: [Column] -> ColumnsFromYAML
+fromColumns [] = ColumnsFromYAML { columnListYAML = [] }
+fromColumns (x:xs) = ColumnsFromYAML {
+  columnListYAML = fromColumn x : columnListYAML (fromColumns xs)
+}
+
+fromColumn :: Column -> ColumnFromYAML
+fromColumn (Column name colType) = ColumnFromYAML {
   columnNameYAML = name,
   columnTypeYAML = show colType
 }
 
-fromRows :: [Row] -> SqlTableFromYaml
-fromRows [] = SqlTableFromYaml {rowsYAML = []}
-fromRows (x:xs) = SqlTableFromYaml {
-  rowsYAML = fromRow x : rowsYAML (fromRows xs)
+fromRows :: [Row] -> RowsFromYAML
+fromRows [] = RowsFromYAML {rowListYAML = []}
+fromRows (x:xs) = RowsFromYAML {
+  rowListYAML = fromRow x : rowListYAML (fromRows xs)
 }
 
+
 fromRow :: Row -> RowFromYAML
-fromRow [] = RowFromYAML { rowYaml = [] }
+fromRow [] = RowFromYAML { rowYAML = [] }
 fromRow (x:xs) = RowFromYAML {
-  rowYaml = fromValue x : rowYaml (fromRow xs)
+  rowYAML = fromValue x : rowYAML (fromRow xs)
 }
+
 
 fromValue :: DF.Value -> ValueFromYAML
 fromValue value = ValueFromYAML{
   valueYAML = show value
 }
+
 -----------------for communication ends----------------
 
 

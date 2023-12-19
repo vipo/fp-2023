@@ -55,6 +55,7 @@ library
     , bytestring
     , free
     , lens
+    , mtl
     , time
     , transformers
     , yaml
@@ -136,6 +137,7 @@ executable fp2023-sql-client
     , free
     , http-client
     , http-client-tls
+    , http-types
     , lens
     , pretty
     , repline
@@ -161,6 +163,7 @@ executable fp2023-sql-server
     , aeson
     , base >=4.7 && <5
     , bytestring
+    , containers
     , directory
     , extra
     , filepath

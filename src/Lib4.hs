@@ -2,12 +2,16 @@
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use if" #-}
 
 module Lib4
   (
     ParsedStatement3, 
     parseStatement,
     SqlStatement(..), 
+    --SqlTableFromYAML, jei reiks - atkomentuoti
     fromStatement,
     toTable,
     toDataframe,
@@ -19,11 +23,54 @@ module Lib4
     RowFromYAML,
     ColumnFromYAML,
     fromTable,
-    fromDataFrame
+    fromDataFrame,
+    Execution,
+    ExecutionAlgebra(..),
+    serializedContent,
+    executeSql
   ) 
 where
 
-import Lib2(dropWhiteSpaces, getOperand, stringToInt, isNumber, areSpacesBetweenWords, splitStatementAtParentheses, tableNameParser)
+import Lib2(dropWhiteSpaces, 
+            getOperand, 
+            stringToInt, 
+            isNumber, 
+            areSpacesBetweenWords, 
+            splitStatementAtParentheses, 
+            getColumnName, 
+            getType, 
+            findColumnIndex,
+            createColumnsDataFrame,
+            columnsToList,
+            createTablesDataFrame,
+            whereConditionColumnList,
+            isFaultyConditions,
+            areRowsEmpty,
+            WhereSelect,
+            Condition(..),
+            Operator(IsGreaterOrEqual, IsEqualTo, IsNotEqual, IsLessThan,
+                    IsGreaterThan, IsLessOrEqual),
+            Operand(..),
+            And(..),
+            AggregateFunction(..),
+            getColumnsRows,
+            createSelectDataFrame,
+            conditionResult,
+            whereConditionColumnName,
+            doColumnsExist,
+            filterSelect,
+            validateDataFrame,
+            processSelectAggregates,
+            switchListToTuple,
+            findMax,
+            rowListToRow,
+            findSum,
+            getValueFromRow)
+import Lib3
+  (CartesianColumn(..), 
+  CartesianDataFrame(..), 
+  UTCTime)
+import Lib1 (validateDataFrame)
 import Control.Applicative(Alternative(empty, (<|>)),optional, some, many)
 import Control.Monad.Trans.State.Strict (State, StateT, get, put, runState, runStateT, state)
 import Data.Char (toLower, GeneralCategory (ParagraphSeparator), isSpace, isAlphaNum, isDigit, digitToInt)
@@ -31,6 +78,8 @@ import Data.String (IsString, fromString)
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.State.Strict
 import DataFrame as DF
+    ( Column(..), ColumnType(..), DataFrame(..), Row, Value(..) )
+import Data.Aeson.Key
 import Data.Char (isDigit)
 import GHC.IO.Handle (NewlineMode(inputNL))
 import Data.List (isPrefixOf, nub)
@@ -38,16 +87,27 @@ import Data.Yaml
 import GHC.Generics
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BSL
-
+import DataFrame (DataFrame (..), Row, Column (..), ColumnType (..), Value (..))
+import Data.Either (fromRight)
+import Data.Bool (Bool(True))
+import Control.Monad.Free (Free (..), liftF)
+import Control.Monad
+import Data.Time
+import Data.List (find, findIndex, elemIndex, nub, elem, intercalate)
+import Data.List (sortBy)
+import Debug.Trace
 
 type ColumnName = String
 type Error = String
+
+-- type Parser4 a = EitherT Error (State String) a
 type Parser4 a = EitherT Error (State String) a
 
 data AscDesc = Asc String | Desc String
   deriving (Show, Eq)
 
-data OrderByValue = ColumnTable (TableName, ColumnName) | ColumnName ColumnName | ColumnNumber Integer 
+--jei kliutu Integeris paseriui pakeisti i Int
+data OrderByValue = ColumnTable (TableName, ColumnName) | ColumnName ColumnName | ColumnNumber Integer
   deriving (Show, Eq)
 
 type OrderBy = [(OrderByValue, AscDesc)]
@@ -70,33 +130,10 @@ data Aggregate2 = AggregateColumn (AggregateFunction, ColumnName) | AggregateCol
 data SpecialSelect2 = SelectAggregate2 [Aggregate2] (Maybe NowFunction) | SelectColumn2 [ColumnName] (Maybe NowFunction) | SelectedColumnsTables [(TableName, ColumnName)] (Maybe NowFunction)
   deriving (Show, Eq)
 
-data AggregateFunction = Sum | Max
-  deriving (Show, Eq)
-
-data And = And
-  deriving (Show, Eq)
-
 type AggregateList = [(AggregateFunction, ColumnName)]
 
 data SpecialSelect = SelectAggregate AggregateList | SelectColumns [ColumnName]
   deriving (Show, Eq)
-
-data Operand = ColumnOperand ColumnName | ConstantOperand DF.Value | ColumnTableOperand (TableName, ColumnName)
-  deriving (Show, Eq)
-
-data Operator =
-     IsEqualTo
-    |IsNotEqual
-    |IsLessThan
-    |IsGreaterThan
-    |IsLessOrEqual
-    |IsGreaterOrEqual
-    deriving (Show, Eq)
-
-data Condition = Condition Operand Operator Operand
-  deriving (Show, Eq)
-
-type WhereSelect = [Condition]
 
 data SelectedColumns = ColumnsSelected [ColumnName]
   deriving (Show, Eq)
@@ -180,7 +217,7 @@ data ValueFromYAML = ValueFromYAML{
 } deriving (Generic, Show)
 
 --------------------------------------------
---patikrinto instances kai nebereks Data.Yaml, nes tada matysis ar fromJSON ar fromYAML palaiko ir kurios bybles pasiekia (man is kazkur aeson traukia) 
+
 instance FromJSON SqlException
 instance FromJSON SqlStatement
 instance FromJSON SqlTableFromYAML
@@ -200,7 +237,6 @@ instance ToJSON ColumnFromYAML
 instance ToJSON RowFromYAML
 instance ToJSON ValueFromYAML
 --------------------------------------------
--- also no clue ar tikra taip
 toTable :: String -> Maybe SqlTableFromYAML
 toTable yasm = decode $ BS.pack yasm
 
@@ -286,14 +322,61 @@ fromValue value = ValueFromYAML{
   valueYAML = show value
 }
 
------------------for communication ends----------------
+------------------------------- data -----------------------------------
 
+data FromJSONTable = FromJSONTable {
+    deserializedtableName :: String,
+    deserializedColumns :: [FromJSONColumn],
+    deserializedRows :: [FromJSONRow]
+} deriving (Show, Eq, Generic)
+
+data FromJSONColumn = FromJSONColumn {
+    deserializedName :: String,
+    deserializedDataType :: String
+} deriving (Show, Eq, Generic)
+
+data FromJSONValue = FromJSONValue {
+    deserializedValue :: String
+} deriving (Show, Eq, Generic)
+
+data FromJSONRow = FromJSONRow {
+    deserializedRow :: [FromJSONValue]
+} deriving (Show, Eq, Generic)
+
+
+
+-----------------for communication ends----------------
+----------------------------- instances ----------------------------------
+
+instance FromJSON FromJSONColumn where
+  parseJSON (Object v) =
+    FromJSONColumn <$> v .: "Name"
+                   <*> v .: "ColumnType"
+  parseJSON _ = mzero
+
+instance FromJSON FromJSONTable where
+  parseJSON (Object v) =
+    FromJSONTable <$> v .: "Table"
+                  <*> v .: "Columns"
+                  <*> v .: "Rows"
+  parseJSON _ = mzero
+
+instance FromJSON FromJSONValue where
+  parseJSON (Object v) =
+    FromJSONValue <$> v .: "Value"
+  parseJSON _ = mzero
+
+instance FromJSON FromJSONRow where
+  parseJSON (Object v) =
+    FromJSONRow <$> v .: "Row"
+  parseJSON _ = mzero
+
+------------------------------------------------------------------------------------
 
 
 newtype EitherT e m a = EitherT {
     runEitherT :: m (Either e a)
 }
-
 
 instance MonadTrans (EitherT e) where
   lift :: Monad m => m a -> EitherT e m a
@@ -321,6 +404,18 @@ instance Monad m => Applicative (EitherT e m) where
           Left e2 -> return $ Left e2
           Right r2 -> return $ Right (r1 r2)
 
+instance (IsString e) => Alternative (EitherT e (State s)) where
+    empty :: EitherT e (State s) a
+    empty = EitherT $ state $ \s -> (Left (Data.String.fromString "Error"), s)
+
+    (<|>) :: EitherT e (State s) a -> EitherT e (State s) a -> EitherT e (State s) a
+    a1 <|> a2 = EitherT $ state $ \s ->
+        let result = runState (runEitherT a1) s
+        in case result of
+            (Left _, _) -> runState (runEitherT a2) s
+            _ -> result
+
+
 instance Monad m => Monad (EitherT e m) where
   (>>=) :: EitherT e m a -> (a -> EitherT e m b) -> EitherT e m b
   m >>= k = EitherT $ do
@@ -332,24 +427,533 @@ instance Monad m => Monad (EitherT e m) where
 throwE :: Monad m => e -> EitherT e m a
 throwE err = EitherT $ return $ Left err
 
+------------------------------------------------------------------------------------
+
 parseStatement :: String -> Either Error ParsedStatement3
 parseStatement input = do
-  (query, remain) <- runParser p input
-  (_,_) <- runParser stopParseAt remain
-  return query
+  (rest, statement) <- runParser p input
+  ( _, _) <- runParser stopParseAt rest
+  return statement
   where
     p :: Parser4 ParsedStatement3
-    p = showTableParser
-               <|> showTablesParser
-               <|> selectStatementParser
-               <|> selectAllParser
-               <|> insertParser
-               <|> updateParser
-               <|> deleteParser
-               <|> selectNowParser
-               <|> createTableParser
-               <|> dropTableParser
+    p = dropTableParser
+        <|> showTableParser
+        <|> showTablesParser
+        <|> selectStatementParser
+        <|> selectAllParser
+        <|> insertParser
+        <|> updateParser
+        <|> deleteParser
+        <|> selectNowParser
+        <|> createTableParser
+        <|> showTableParser
 
+fakeParser :: Parser4 ParsedStatement3
+fakeParser = do 
+  input <- lift get
+  throwE input
+
+-- parseStatement :: String -> Either Error ParsedStatement3
+-- parseStatement input = do
+--   result <- runParser p input
+--   case result of
+--     Left err -> do
+--       let _ = trace ("Parsing error: " ++ show err) ()
+--       Left err  -- Return the error
+--     Right (rest, statement) -> do
+--       let _ = trace ("Rest: " ++ show rest ++ ", Statement: " ++ show statement) ()
+--       _ <- runParser stopParseAt rest
+--       Right statement
+--   where
+--     p :: Parser4 ParsedStatement3
+--     p = showTableParser
+--         <|> showTablesParser
+--         <|> selectStatementParser
+--         <|> selectAllParser
+--         <|> insertParser
+--         <|> updateParser
+--         <|> deleteParser
+--         <|> selectNowParser
+--         <|> createTableParser
+--         <|> dropTableParser
+
+--------------------------EXECUTION ALGEBRYZAS-----------------------------------
+
+data ExecutionAlgebra next =
+    GetTables (TableArray -> next)
+  | LoadFile TableName (Either ErrorMessage DeserializedContent -> next)
+  | SaveFile  (TableName, DataFrame) (() -> next)
+  | GetTime (UTCTime -> next)
+  | DropFile TableName (Maybe ErrorMessage -> next)
+  -- feel free to add more constructors heres 
+  deriving Functor
+
+type Execution = Free ExecutionAlgebra
+
+---------------------------------RUN STEP'AMS------------------------------------
+
+loadFile :: TableName -> Execution (Either ErrorMessage DeserializedContent)
+loadFile name = liftF $ LoadFile name id
+
+getTime :: Execution UTCTime
+getTime = liftF $ GetTime id
+
+getTables :: Execution TableArray
+getTables = liftF $ GetTables id
+
+saveFile :: (TableName, DataFrame) -> Execution ()
+saveFile table = liftF $ SaveFile table id
+
+dropFile :: TableName -> Execution (Maybe ErrorMessage)
+dropFile table = liftF $ DropFile table id 
+
+--------------------------EXECUTE SQL REIKALIUKAI--------------------------------
+
+executeSql :: String -> Execution (Either ErrorMessage DataFrame)
+executeSql sql = case parseStatement sql of
+  Right (Lib4.SelectAll tables selectWhere order) -> do
+    contents <- loadFromFiles tables
+    case contents of
+      Right tuples -> case executeSelectAll tables (snd $ switchListToTuple' tuples) selectWhere order of
+        Right dfs -> return $ Right dfs
+        Left err -> return $ Left err
+      Left err -> return $ Left err
+  Left err -> return $ Left err
+
+  Right (Lib4.ShowTable table) -> do
+    content <- loadFile table
+    case content of
+      Left err -> return $ Left err
+      Right content2 -> return $ Right $ executeShowTable (snd content2) table
+  Left err -> return $ Left err
+
+  Right (Insert table columns values) -> do
+    content <- loadFile table
+    case content of
+            Left err1 -> return $ Left err1
+            Right deserializedContent -> do
+              case columns of
+                Just columnsProvided -> (insertColumnsProvided deserializedContent columnsProvided values)
+                Nothing -> (insertToAll deserializedContent values)
+
+  Right (Update table selectUpdate selectWhere) -> do
+    content <- loadFile table
+    let condi = [Condition (ConstantOperand (IntegerValue 1)) IsEqualTo (ConstantOperand (IntegerValue 1))]
+    case content of
+            Left err1 -> return $ Left err1
+            Right deserializedContent -> do
+              case selectWhere of
+                Just selectWhere ->
+                    case (filterSelectVol2 (snd deserializedContent) selectUpdate selectWhere) of
+                      Right df -> do
+                        saveFile (table, df)
+                        return $ Right df
+                      Left err -> return $ Left err
+                Nothing -> case (filterSelectVol2 (snd deserializedContent) selectUpdate condi) of
+                  Right df -> do
+                        saveFile (table, df)
+                        return $ Right df
+                  Left err -> return $ Left err
+
+  Right (Delete table conditions) -> do
+    content <- loadFile table
+    case content of
+            Left err1 -> return $ Left err1
+            Right deserializedContent -> do
+              case (deleteExecution (snd deserializedContent) $ conditions) of
+                Right dfs -> do
+                        saveFile (table, dfs)
+                        return $ Right dfs
+                Left err -> return $ Left err
+  Right SelectNow -> do
+    da <- getTime
+    let df = createNowDataFrame (uTCToString da)
+    return $ Right df
+
+  Right Lib4.ShowTables -> do 
+    files <- getTables
+    let df = executeShowTables files
+    return $ Right df
+
+  Right (Lib4.Select specialSelect tables selectWhere order) -> do
+    time <- getTime
+    contents <- loadFromFiles tables
+    case contents of
+      Right tuples -> case executeSelectWithAllSauces specialSelect tables (snd $ switchListToTuple' tuples) selectWhere time order of
+        Right dfs -> return $ Right dfs
+        Left err -> return $ Left err
+      Left err -> return $ Left err
+  Left err -> return $ Left err
+
+  Right (DropTable table) -> do
+        _ <- dropFile table
+        return $ Right (DataFrame [] [])
+
+  Right (CreateTable table columns) -> do
+        content <- loadFile table
+        case content of
+            Left _ -> do
+                saveFile (table, DataFrame columns [])
+                return $ Right (DataFrame columns [])
+            Right _ -> return $ Left "This name of table is already used." 
+
+--------------------------------------Load FILES-----------------------------------------
+
+loadFromFiles :: TableArray -> Execution (Either ErrorMessage [DeserializedContent])
+loadFromFiles tables = do
+    results <- traverse loadFile tables
+    return $ sequence results
+
+switchListToTuple' :: [(TableName, DataFrame)] -> (TableArray, [DataFrame])
+switchListToTuple' [] = ([], [])
+switchListToTuple' tuple = (getTNs tuple, getDFs tuple)
+
+getTNs :: [(TableName, DataFrame)] -> TableArray
+getTNs [] = []
+getTNs ((tn, df) : xs) = getTN (tn, df) ++ getTNs xs
+
+getTN :: (TableName, DataFrame) -> TableArray
+getTN (tn, _) = [tn]
+
+getDFs :: [(TableName, DataFrame)] -> [DataFrame]
+getDFs [] = []
+getDFs ((tn, df) : xs) = getDF (tn, df) ++ getDFs xs
+
+getDF :: (TableName, DataFrame) -> [DataFrame]
+getDF (_, df) = [df]
+
+-------------------------------EXECUTIONAS---------------------------------------
+
+executeShowTable :: DataFrame -> TableName -> DataFrame
+executeShowTable df table = createColumnsDataFrame (columnsToList df) table
+
+executeShowTables :: TableArray -> DataFrame
+executeShowTables tables = createTablesDataFrame tables
+--REIKES ORDER BY:
+executeSelectAll :: TableArray -> [DataFrame] -> Maybe WhereSelect -> Maybe OrderBy -> Either ErrorMessage DataFrame
+executeSelectAll tables selectedDfs whereSelect order = case areTablesValid selectedDfs of
+    True -> case whereSelect of
+      Just conditions -> case isFaultyConditions conditions of
+        False -> case doColumnsExistDFs (whereConditionColumnList conditions) selectedDfs of
+          True -> case doColumnsExistProvidedDfs tables selectedDfs (whereConditionColumnList2 conditions) of
+            True -> case checkForMatchingColumns (getAllColumnsCartesianDF (createCartesianDataFrame selectedDfs tables)) (whereConditionColumnList conditions) of
+              True -> case areRowsEmpty (deCartesianDataFrame $ filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions) of
+                False -> case order of
+                  Just o ->  case sortCartesianDataFrame (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions) o of
+                    Left err -> Left err
+                    Right cdf -> Right $ deCartesianDataFrame cdf
+                  Nothing -> Right (deCartesianDataFrame $ filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions)
+                True -> Left "There are no results with the provided conditions or the condition is faulty"
+              False -> Left "Some of provided column names are ambiguous"
+            False -> Left "Some of provided columns do not exist in provided tables or expected table where not provided after 'from'"
+          False -> Left "Some of provided columns do not exist in provided tables"
+        True -> Left "Conditions are faulty"
+      Nothing -> case order of
+        Just o -> case sortCartesianDataFrame (createCartesianDataFrame [(cartesianDataFrame selectedDfs)] tables) o of
+          Right cdf -> Right $ deCartesianDataFrame cdf
+          Left err -> Left err
+        Nothing -> Right $ cartesianDataFrame selectedDfs
+    False -> Left "Some of provided tables are not valid"
+
+executeSelectWithAllSauces :: SpecialSelect2 -> TableArray -> [DataFrame] -> Maybe WhereSelect -> UTCTime -> Maybe OrderBy -> Either ErrorMessage DataFrame
+executeSelectWithAllSauces specialSelect tables selectedDfs whereSelect time order = case specialSelect of
+  (SelectColumn2 specialColumns nowFunction) -> case doColumnsExistDFs specialColumns selectedDfs of
+    True -> case checkForMatchingColumns (getAllColumnsCartesianDF (createCartesianDataFrame selectedDfs tables)) specialColumns of
+      True -> case areTablesValid selectedDfs of
+        True -> case whereSelect of
+          Just conditions -> case isFaultyConditions conditions of
+            False -> case doColumnsExistDFs (whereConditionColumnList conditions) selectedDfs of
+              True -> case doColumnsExistProvidedDfs tables selectedDfs (whereConditionColumnList2 conditions) of
+                True -> case checkForMatchingColumns (getAllColumnsCartesianDF (createCartesianDataFrame selectedDfs tables)) (whereConditionColumnList conditions) of
+                  True -> case areRowsEmpty (deCartesianDataFrame $ filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions) of
+                    False -> case nowFunction of
+                      Just _ -> case order of 
+                        Just o -> case sortCartesianDataFrame (createCartesianDataFrame ([uncurry createSelectDataFrame 
+                                  $ getColumnsRows specialColumns (deCartesianDataFrame $ filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions)] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])) o of
+                          Right cdf -> Right $ deCartesianDataFrame cdf
+                          Left err -> Left err
+                        Nothing -> Right $ deCartesianDataFrame (createCartesianDataFrame ([uncurry createSelectDataFrame 
+                                  $ getColumnsRows specialColumns (deCartesianDataFrame $ filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions)] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]))
+                      Nothing -> case order of
+                        Just o -> case sortCartesianDataFrame (createCartesianDataFrame [(uncurry createSelectDataFrame $ getColumnsRows specialColumns (deCartesianDataFrame $ filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions))] tables) o of
+                          Right cdf -> Right $ deCartesianDataFrame cdf
+                          Left err -> Left err
+                        Nothing -> Right $ uncurry createSelectDataFrame 
+                                  $ getColumnsRows specialColumns (deCartesianDataFrame $ filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions)
+                    True -> Left "There are no results with the provided conditions or the condition is faulty"
+                  False -> Left "Some of provided column names are ambiguous"
+                False -> Left "Some of provided columns do not exist in provided tables or expected table where not provided after 'from'"
+              False -> Left "Some of provided columns do not exist in provided tables"
+            True -> Left "Conditions are faulty"
+          Nothing -> case nowFunction of
+            Just _ -> case order of 
+              Just o -> case sortCartesianDataFrame (createCartesianDataFrame ([uncurry createSelectDataFrame $ getColumnsRows specialColumns (deCartesianDataFrame $ createCartesianDataFrame selectedDfs tables)] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])) o of
+                Right cdf -> Right $ deCartesianDataFrame cdf
+                Left err -> Left err
+              Nothing -> Right $ deCartesianDataFrame (createCartesianDataFrame ([uncurry createSelectDataFrame $ getColumnsRows specialColumns (deCartesianDataFrame $ createCartesianDataFrame selectedDfs tables)] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]))
+            Nothing -> case order of
+              Just o -> case sortCartesianDataFrame (createCartesianDataFrame [(uncurry createSelectDataFrame $ getColumnsRows specialColumns (deCartesianDataFrame $ createCartesianDataFrame selectedDfs tables))] tables) o of
+                Right cdf -> Right $ deCartesianDataFrame cdf
+                Left err -> Left err
+              Nothing -> Right $ uncurry createSelectDataFrame $ getColumnsRows specialColumns (deCartesianDataFrame $ createCartesianDataFrame selectedDfs tables)
+        False -> Left "Some of provided tables are not valid"
+      False -> Left "Some of provided column names are ambiguous"
+    False -> Left "Some of provided columns do not exist in provided tables"
+
+  (SelectedColumnsTables specialColumns nowFunction) -> case doColumnsExistProvidedDfs tables selectedDfs specialColumns of
+    True -> case areTablesValid selectedDfs of
+      True -> case whereSelect of
+        Just conditions -> case isFaultyConditions conditions of
+          False -> case doColumnsExistDFs (whereConditionColumnList conditions) selectedDfs of
+            True -> case doColumnsExistProvidedDfs tables selectedDfs (whereConditionColumnList2 conditions) of
+              True -> case areRowsEmpty (deCartesianDataFrame $ filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions) of
+                False -> case nowFunction of
+                  Just _ -> case order of
+                    Just o -> case sortCartesianDataFrame (createCartesianDataFrame ([uncurry createSelectDataFrame 
+                              $ (deCartesianColumns $ fst $ getColumnsTablesList specialColumns (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions), snd $ getColumnsTablesList specialColumns (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions))] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])) o of
+                      Right cdf -> Right $ deCartesianDataFrame cdf
+                    Nothing -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([uncurry createSelectDataFrame 
+                              $ (deCartesianColumns $ fst $ getColumnsTablesList specialColumns (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions), snd $ getColumnsTablesList specialColumns (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions))] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])
+                  Nothing -> case order of
+                    Just o -> case sortCartesianDataFrame (createCartesianDataFrame [(uncurry createSelectDataFrame 
+                              $ (deCartesianColumns $ fst $ getColumnsTablesList specialColumns (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions), snd $ getColumnsTablesList specialColumns (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions)))] tables) o of
+                      Right cdf -> Right $ deCartesianDataFrame cdf
+                      Left err -> Left err
+                    Nothing -> Right $ uncurry createSelectDataFrame 
+                              $ (deCartesianColumns $ fst $ getColumnsTablesList specialColumns (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions), snd $ getColumnsTablesList specialColumns (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions))
+                True -> Left "There are no results with the provided conditions or the condition is faulty"
+              False -> Left "Some of provided column names are ambiguous"
+            False -> Left "Some of provided columns do not exist in provided tables"
+          True -> Left "Conditions are faulty"
+        Nothing -> case nowFunction of
+          Just _ -> case order of
+            Just o -> case sortCartesianDataFrame (createCartesianDataFrame ([uncurry createSelectDataFrame 
+                              (deCartesianColumns $ fst $ getColumnsTablesList specialColumns (createCartesianDataFrame selectedDfs tables), snd $ getColumnsTablesList specialColumns (createCartesianDataFrame selectedDfs tables))] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])) o of
+              Right cdf -> Right $ deCartesianDataFrame cdf
+              Left err -> Left err
+            Nothing -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([uncurry createSelectDataFrame 
+                              (deCartesianColumns $ fst $ getColumnsTablesList specialColumns (createCartesianDataFrame selectedDfs tables), snd $ getColumnsTablesList specialColumns (createCartesianDataFrame selectedDfs tables))] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])
+          Nothing -> case order of
+            Just o -> case sortCartesianDataFrame (createCartesianDataFrame [uncurry createSelectDataFrame 
+                              (deCartesianColumns $ fst $ getColumnsTablesList specialColumns (createCartesianDataFrame selectedDfs tables), snd $ getColumnsTablesList specialColumns (createCartesianDataFrame selectedDfs tables))] tables) o of
+              Right cdf -> Right $ deCartesianDataFrame cdf
+              Left err -> Left err 
+            Nothing -> Right $ uncurry createSelectDataFrame 
+                              (deCartesianColumns $ fst $ getColumnsTablesList specialColumns (createCartesianDataFrame selectedDfs tables), snd $ getColumnsTablesList specialColumns (createCartesianDataFrame selectedDfs tables))
+      False -> Left "Some of provided table(s) are not valid"
+    False -> Left "Some of provided columns do not exist in provided tables"
+--validateOrderBy :: [(OrderByValue, AscDesc)] -> CartesianDataFrame -> Bool  Left "Provided order by columns are faulty"
+  (SelectAggregate2 aggregatesList nowFunction) -> case areTablesValid selectedDfs of
+    True -> case doColumnsExistDFs (getColumnsFromAggregates aggregatesList) selectedDfs of
+      True -> case checkForMatchingColumns (getAllColumnsCartesianDF (createCartesianDataFrame selectedDfs tables)) (getColumnsFromAggregates aggregatesList)of
+        True -> case doColumnsExistProvidedDfs tables selectedDfs (getColumnsTablesAggregatesList $ getColumnsTablesAggregates aggregatesList) of
+          True -> case whereSelect of
+            Just conditions -> case isFaultyConditions conditions of
+              False -> case doColumnsExistDFs (whereConditionColumnList conditions) selectedDfs of
+                True -> case doColumnsExistProvidedDfs tables selectedDfs (whereConditionColumnList2 conditions) of
+                  True -> case areRowsEmpty (deCartesianDataFrame $ filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions) of
+                    False -> case nowFunction of
+                      Just _ -> case processSelect2 (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions) aggregatesList of
+                        Right (cols, rows) -> case null cols of
+                          True -> case processSelect2' (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions) aggregatesList of
+                            Right (cols2, rows2) -> case null cols2 of
+                              True -> Left "There are no results"
+                              False -> case order of
+                                Just o -> case validateOrderBy o (createCartesianDataFrame ([createSelectDataFrame cols2 [rows2]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])) of
+                                  True -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createSelectDataFrame cols2 [rows2]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])
+                                  False -> Left "Provided order by columns are faulty"
+                                Nothing -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createSelectDataFrame cols2 [rows2]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])
+                            Left err -> Left err
+                          False -> case processSelect2' (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions) aggregatesList of
+                            Right (cols2, rows2) -> case null cols2 of
+                              True -> case order of
+                                Just o -> case validateOrderBy o (createCartesianDataFrame ([createSelectDataFrame cols [rows]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])) of
+                                  True -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createSelectDataFrame cols [rows]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])
+                                  False -> Left "Provided order by columns are faulty"
+                                Nothing -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createSelectDataFrame cols [rows]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])
+                              False -> case order of
+                                Just o -> case validateOrderBy o $ createCartesianDataFrame ([createSelectDataFrame (cols ++ cols2) [rows ++ rows2]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]) of
+                                  True -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createSelectDataFrame (cols ++ cols2) [rows ++ rows2]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]) 
+                                  False -> Left "Provided order by columns are faulty"
+                                Nothing -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createSelectDataFrame (cols ++ cols2) [rows ++ rows2]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]) 
+                            Left err -> Left err
+                        Left err -> Left err
+                      Nothing -> case processSelect2 (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions) aggregatesList of
+                        Right (cols, rows) -> case null cols of
+                          True -> case processSelect2' (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions) aggregatesList of
+                            Right (cols2, rows2) -> case null cols2 of
+                              True -> Left "There are no results"
+                              False -> case order of
+                                Just o -> case validateOrderBy o (createCartesianDataFrame [(createSelectDataFrame cols2 [rows2])] tables) of
+                                  True -> Right $ createSelectDataFrame cols2 [rows2]
+                                  False -> Left "Provided order by columns are faulty" 
+                                Nothing -> Right $ createSelectDataFrame cols2 [rows2]
+                            Left err -> Left err
+                          False -> case processSelect2' (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions) aggregatesList of
+                            Right (cols2, rows2) -> case null cols2 of
+                              True -> case order of
+                                Just o -> case validateOrderBy o (createCartesianDataFrame [(createSelectDataFrame cols [rows])] tables) of
+                                  True -> Right $ createSelectDataFrame cols [rows]
+                                  False -> Left "Provided order by columns are faulty" 
+                                Nothing -> Right $ createSelectDataFrame cols [rows]
+                              False -> case order of
+                                Just o -> case validateOrderBy o (createCartesianDataFrame [(createSelectDataFrame (cols ++ cols2) [rows ++ rows2])] tables) of
+                                  True -> Right $ createSelectDataFrame (cols ++ cols2) [rows ++ rows2]
+                                  False -> Left "Provided order by columns are faulty"
+                                Nothing -> Right $ createSelectDataFrame (cols ++ cols2) [rows ++ rows2]
+                            Left err -> Left err
+                        Left err -> Left err
+                    True -> Left "There are no results with the provided conditions or the condition is faulty"
+                  False -> Left "Some of provided column names are ambiguous"
+                False -> Left "Some of provided columns do not exist in provided tables"
+              True -> Left "Conditions are faulty"
+            Nothing -> case nowFunction of
+              Just _ -> case processSelect2 (createCartesianDataFrame selectedDfs tables) aggregatesList of
+                Right (cols, rows) -> case null cols of
+                  True -> case processSelect2' (createCartesianDataFrame selectedDfs tables) aggregatesList of
+                    Right (cols2, rows2) -> case null cols2 of
+                      True -> Left "There are no results"
+                      False -> case order of
+                        Just o -> case validateOrderBy o (createCartesianDataFrame ([createSelectDataFrame cols2 [rows2]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]) ) of
+                          True -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createSelectDataFrame cols2 [rows2]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]) 
+                          False -> Left "Provided order by columns are faulty" 
+                        Nothing -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createSelectDataFrame cols2 [rows2]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]) 
+                    Left err -> Left err
+                  False -> case processSelect2' (createCartesianDataFrame selectedDfs tables) aggregatesList of
+                    Right (cols2, rows2) -> case null cols2 of
+                      True -> case order of
+                        Just o -> case validateOrderBy o (createCartesianDataFrame ([createSelectDataFrame cols [rows]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]) ) of
+                          True -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createSelectDataFrame cols [rows]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])
+                          False ->  Left "Provided order by columns are faulty" 
+                        Nothing -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createSelectDataFrame cols [rows]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]) 
+                      False -> case order of
+                        Just o -> case validateOrderBy o (createCartesianDataFrame ([createSelectDataFrame (cols ++ cols2) [rows ++ rows2]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]) ) of
+                          True -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createSelectDataFrame (cols ++ cols2) [rows ++ rows2]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]) 
+                          False -> Left "Provided order by columns are faulty" 
+                        Nothing -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createSelectDataFrame (cols ++ cols2) [rows ++ rows2]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]) 
+                    Left err -> Left err
+                Left err -> Left err
+              Nothing -> case processSelect2 (createCartesianDataFrame selectedDfs tables) aggregatesList of
+                Right (cols, rows) -> case null cols of
+                  True -> case processSelect2' (createCartesianDataFrame selectedDfs tables) aggregatesList of
+                    Right (cols2, rows2) -> case null cols2 of
+                      True -> Left "There are no results"
+                      False -> case order of
+                        Just o -> case validateOrderBy o (createCartesianDataFrame [(createSelectDataFrame cols2 [rows2])] tables) of
+                          True -> Right $ createSelectDataFrame cols2 [rows2]
+                          False -> Left "Provided order by columns are faulty" 
+                        Nothing -> Right $ createSelectDataFrame cols2 [rows2]
+                    Left err -> Left err
+                  False -> case processSelect2' (createCartesianDataFrame selectedDfs tables) aggregatesList of
+                    Right (cols2, rows2) -> case null cols2 of
+                      True -> case order of
+                        Just o -> case validateOrderBy o (createCartesianDataFrame [(createSelectDataFrame cols [rows])] tables) of
+                          True -> Right $ createSelectDataFrame cols [rows]
+                          False ->  Left "Provided order by columns are faulty" 
+                        Nothing -> Right $ createSelectDataFrame cols [rows]
+                      False -> case order of
+                        Just o -> case validateOrderBy o (createCartesianDataFrame [(createSelectDataFrame (cols ++ cols2) [rows ++ rows2])] tables) of
+                          True -> Right $ createSelectDataFrame (cols ++ cols2) [rows ++ rows2]
+                          False ->  Left "Provided order by columns are faulty" 
+                        Nothing -> Right $ createSelectDataFrame (cols ++ cols2) [rows ++ rows2]
+                    Left err -> Left err
+                Left err -> Left err
+          False -> Left "Some of provided columns in aggregate functions do not exist in provided tables"
+        False -> Left "Some of provided columns in aggregate functions are ambiguous" 
+      False -> Left "Some of provided columns in aggregate functions do not exist in provided tables" 
+    False -> Left "Some of provided table(s) are not valid"
+
+--validateOrderBy :: [(OrderByValue, AscDesc)] -> CartesianDataFrame -> Bool
+---------------------------------------some delete stuff starts--------------------------
+
+deleteExecution :: DataFrame -> Maybe [Condition] -> Either ErrorMessage DataFrame
+deleteExecution contains Nothing = Right $ leaveOnlyColumnNames contains
+deleteExecution contains (Just conditions) =
+  case isFaultyConditions conditions of
+    False -> case doColumnsExist (whereConditionColumnList conditions) contains of
+      True -> case areRowsEmpty (filterSelect contains conditions) of
+        False -> Right (uncurry createSelectDataFrame (getColumnsRows (columnsToList (contains)) (reversedFilterSelect (contains) conditions)))
+        True -> Right $ contains
+      False -> Left "The specified column doesn't exist"
+    True -> Left "Conditions are faulty"
+
+leaveOnlyColumnNames :: DataFrame -> DataFrame
+leaveOnlyColumnNames (DataFrame columns _) = DataFrame columns []
+
+reversedFilterSelect :: DataFrame -> [Condition] -> DataFrame
+reversedFilterSelect df [] = df
+reversedFilterSelect (DataFrame colsOg rowsOg) conditions =
+  reversedFilterSelect (DataFrame colsOg (reversedFilterCondition colsOg rowsOg conditions)) []
+
+reversedFilterCondition :: [Column] -> [Row] -> [Condition] -> [Row]
+reversedFilterCondition _ rows [] = rows
+reversedFilterCondition columns rows conditions =
+  filter (\x -> not $ all (\condition -> conditionResult columns x condition) conditions) rows
+
+---------------------------------------some delete stuff ends----------------------------
+---------------------------------------some insert stuff starts----------------------------
+
+getColumnNamesVol2 :: SelectedColumns -> [ColumnName]
+getColumnNamesVol2 (ColumnsSelected columns) = columns
+
+insertColumnsProvided :: DeserializedContent -> SelectedColumns -> InsertedValues -> Execution (Either ErrorMessage DataFrame)
+insertColumnsProvided deserializedContent justColumns values =
+  case doColumnsExist (getColumnNamesVol2 justColumns) (snd deserializedContent) of
+    True ->
+      if insertCheckCounts justColumns values then (case insertColumnsProvidedDeserializedContent deserializedContent justColumns values of
+        Left errMsg -> return $ Left errMsg
+        Right updatedDataFrame -> do
+          saveFile (fst deserializedContent, updatedDataFrame)
+          return (Right updatedDataFrame)) else return $ Left "Behold! I, your sovereign, detect errors in thy counts of values and columns. Attend swiftly, rectify this ledger amiss, for accuracy befits our royal domain."
+    False -> return $ Left "The provided columns do not exist in the table"
+
+insertColumnsProvidedDeserializedContent :: DeserializedContent -> SelectedColumns -> InsertedValues -> Either ErrorMessage DataFrame
+insertColumnsProvidedDeserializedContent (tableName, DataFrame columns rows) changedColumns newValues =
+    Right $ DataFrame columns (rows ++ [insertColumnsProvidedRecurssion columns changedColumns newValues])
+
+insertColumnsProvidedRecurssion :: [Column] -> SelectedColumns -> InsertedValues -> [DF.Value]
+insertColumnsProvidedRecurssion [] _ _ = []
+insertColumnsProvidedRecurssion (Column colName _ : restColumns) (ColumnsSelected changedColumns) newValues =
+    case elemIndex colName changedColumns of
+        Just index -> newValues !! index : restValues
+        Nothing -> NullValue : restValues
+  where
+    restValues = insertColumnsProvidedRecurssion restColumns (ColumnsSelected changedColumns) newValues
+
+insertToAll :: DeserializedContent -> [DF.Value] -> Execution (Either ErrorMessage DataFrame)
+insertToAll (tableName, loadedDataFrame) values = do
+    let checkCount = insertToAllCheckCounts loadedDataFrame values
+    either
+        (return . Left)
+        (\newValues -> do
+            let updatedDataFrame = insertToAllDataFrame loadedDataFrame newValues
+            saveFile (tableName, updatedDataFrame)
+            return $ Right updatedDataFrame)
+        checkCount
+
+insertCheckCounts :: SelectedColumns -> InsertedValues -> Bool
+insertCheckCounts (ColumnsSelected colNames) values = length values == length colNames
+
+insertToAllCheckCounts :: DataFrame -> [DF.Value] -> Either ErrorMessage [DF.Value]
+insertToAllCheckCounts (DataFrame columns _) values
+    | length values == length columns = Right values
+    | otherwise = Left "The columns count is not the same as the provided values count"
+
+insertToAllDataFrame :: DataFrame -> [DF.Value] -> DataFrame
+insertToAllDataFrame (DataFrame columns rows) newValues =
+    DataFrame columns (rows ++ [newValues])
+
+---------------------------------------some insert stuff ends----------------------------
+
+---------------------------------------some update stuff ends----------------------------
+
+createNowDataFrame :: [Row] -> DataFrame
+createNowDataFrame time = DataFrame [Column "Now" StringType] time
+
+uTCToString :: UTCTime -> [Row]
+uTCToString utcTime = [[StringValue (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (addUTCTime (120*60) utcTime))]]
+
+-----------------------------------------------------------------------------------
 
 dropTableParser :: Parser4 ParsedStatement3
 dropTableParser = do
@@ -376,23 +980,12 @@ createTableParser = do
     _ <- optional whitespaceParser
     pure $ CreateTable table columnsAndTypes
 
-runParser :: Parser4 a -> String -> Either Error (a, String)
+runParser :: Parser4 a -> String -> Either Error (String, a)
 runParser parser input = 
     let eitherResult = runState (runEitherT parser) input
     in case eitherResult of
         (Left errMsg, _) -> Left errMsg
-        (Right value, remainingInput) -> Right (value, remainingInput)
-
-instance (IsString e) => Alternative (EitherT e (State s)) where
-    empty :: EitherT e (State s) a
-    empty = EitherT $ state $ \s -> (Left (fromString "Error"), s)
-
-    (<|>) :: EitherT e (State s) a -> EitherT e (State s) a -> EitherT e (State s) a
-    a1 <|> a2 = EitherT $ state $ \s ->
-        let result = runState (runEitherT a1) s
-        in case result of
-            (Left _, _) -> runState (runEitherT a2) s
-            _ -> result
+        (Right value, remainingInput) -> Right (remainingInput, value)
 
 ----------------------------------------------------------------------------------
 
@@ -503,17 +1096,21 @@ selectAllParser = do
 --------------------------order by----------------------------------
 orderByParser :: Parser4 OrderBy
 orderByParser = do
+  order <- queryStatementParser "order"
+  _ <- whitespaceParser
+  by <- queryStatementParser "by"
+  _ <- whitespaceParser
   some orderValuesParser
   where 
     orderValuesParser :: Parser4 (OrderByValue, AscDesc)
     orderValuesParser = do
       value <- orderByValueParser
       ascDesc <- ascDescParser
-      _ <- optional (whitespaceParser >> char ',')
+      _ <- optional (char ',' >> optional whitespaceParser)
       pure (value, ascDesc)
 
 orderByValueParser :: Parser4 OrderByValue
-orderByValueParser = do (ColumnTable <$> columnNameTableParser) <|> (ColumnName <$> columnNameParser) <|> (ColumnNumber <$> numberParser)
+orderByValueParser = do (ColumnNumber <$> numberParser) <|> (ColumnTable <$> columnNameTableParser) <|> (ColumnName <$> columnNameParser)
 
 ascDescParser :: Parser4 AscDesc
 ascDescParser = tryParseDesc <|> tryParseAsc <|> tryParseSymbol
@@ -529,6 +1126,404 @@ ascDescParser = tryParseDesc <|> tryParseAsc <|> tryParseSymbol
     tryParseSymbol = do
       _ <- optional whitespaceParser
       return $ Asc "asc"
+
+---------------------------------------- I ORDER YOU BY THE POWER OF ----------------------------------------
+
+-- orderBy :: DataFrame -> OrderBy -> DataFrame
+-- orderBy df (x:xs) = "do later"
+
+
+---------------------------------------- DA SORT IS REAL, AND BUBBLY -----------------------------------------
+
+-- bubbleSort :: Ord a => [a] -> [a]
+-- bubbleSort [] = []
+-- bubbleSort [x] = [x]
+-- bubbleSort (x:y:xs) = if x > y then y : bubbleSort (x:xs) else x : bubbleSort (y:xs)
+
+-- isSorted :: Ord a => [a] -> Bool
+-- isSorted [] = True
+-- isSorted [x] = True
+-- isSorted (x:y:xs) = if x > y then False else isSorted (y:xs)
+
+-- bubbleSortMain :: Ord a => [a] -> [a]
+-- bubbleSortMain list = if isSorted list then list else bubbleSortMain (bubbleSort list)
+
+
+
+-- sortRows :: OrderBy -> DataFrame -> DataFrame
+
+validateOrderBy :: [(OrderByValue, AscDesc)] -> CartesianDataFrame -> Bool
+validateOrderBy [] _ = True
+validateOrderBy ((order, _):xs) (CartesianDataFrame cols rows) = case order of
+  ColumnTable _ -> case validateColumnTable cols order of
+    True -> validateOrderBy xs (CartesianDataFrame cols rows)
+    False -> False
+  ColumnName name -> case validateColumnName name (deCartesianColumns cols) of
+    True -> validateOrderBy xs (CartesianDataFrame cols rows)
+    False -> False
+  ColumnNumber number -> case validateColumnNumber (fromInteger number) cols of
+    True -> validateOrderBy xs (CartesianDataFrame cols rows)
+    False -> False
+
+----------------------------------------------------------------
+toAscDescList :: OrderBy -> [AscDesc]
+toAscDescList ((orderByValue, ascdesc):xs)
+  | xs /= [] = [ascdesc] ++ toAscDescList xs
+  | otherwise = [ascdesc] 
+
+-- int is getColumnNumberFromOrderBy
+validateColumnNumber :: Int ->  [CartesianColumn] -> Bool
+validateColumnNumber int cols = 
+  case int > (length cols) - 1 || int < 0 of
+    True -> False
+    False -> True
+
+validateColumnName :: ColumnName -> [Column] -> Bool
+validateColumnName name cols = 
+  if (countOfName name cols 0) == 1
+    then True
+    else False
+
+countOfName :: ColumnName -> [Column] -> Int -> Int
+countOfName _ [] index = index
+countOfName name ((Column aName _ ):xs) index = 
+  if aName == name 
+    then (index + 1) + countOfName name xs index
+    else index + countOfName name xs index
+
+validateColumnTable :: [CartesianColumn] -> OrderByValue -> Bool
+validateColumnTable [] _ = False
+validateColumnTable cc@((CartesianColumn (table, Column name _)):xs) (ColumnTable (tableOr, columnOr)) = 
+  case table == tableOr && name == columnOr of
+    False -> validateColumnTable cc (ColumnTable (tableOr, columnOr))
+    True -> case countOfColumnTable cc (ColumnTable (tableOr, columnOr)) 0 of
+      1 -> True
+      _ -> False
+
+countOfColumnTable :: [CartesianColumn] -> OrderByValue -> Int -> Int
+countOfColumnTable [] _ i = i
+countOfColumnTable ((CartesianColumn (table, Column name _)):xs) (ColumnTable (tableOr, columnOr)) i =
+  case table == tableOr && name == columnOr of
+    True -> countOfColumnTable xs (ColumnTable (tableOr, columnOr)) (i + 1)
+    False -> countOfColumnTable xs (ColumnTable (tableOr, columnOr)) i
+
+
+toCartesianColumns :: CartesianDataFrame -> [CartesianColumn]
+toCartesianColumns (CartesianDataFrame cols rows) = cols
+--------------------------------------------------------------
+
+sortCartesianDataFrame :: CartesianDataFrame -> OrderBy -> Either ErrorMessage CartesianDataFrame
+sortCartesianDataFrame (CartesianDataFrame cols rows) order = do
+    -- case validateOrderBy order (CartesianDataFrame cols rows) of
+    --   False -> Left "Order by values are not valid"
+    --   True -> do
+  sortByValues <- mapM (getValuesForSort (CartesianDataFrame cols rows)) order
+  let sortedRows = sortBy (compareWhenEqual sortByValues) rows
+  return $ CartesianDataFrame cols sortedRows
+
+getValuesForSort :: CartesianDataFrame -> (OrderByValue, AscDesc) -> Either ErrorMessage (Int, AscDesc)
+getValuesForSort cdf (order, ascdesc) = case order of
+  ColumnNumber _ -> Right ((getColumnNumberFromOrderBy (order, ascdesc))-1, ascdesc)
+  ColumnName _ -> Right ((findColumnIndex (getColumnNameFromOrderBy (order, ascdesc)) (deCartesianColumns (toCartesianColumns cdf)))-1, ascdesc)
+  ColumnTable _ -> Right ((getColumnTableFromOrderBy (order, ascdesc) cdf), ascdesc)
+  
+
+-- compareWhenEqual :: [(Int, AscDesc)] -> Row -> Row -> Ordering
+-- compareWhenEqual [] _ _ = EQ
+-- compareWhenEqual ((i, ascdesc):iascdesc) row1 row2 =
+--     let primaryOrder = compareValues ascdesc (row1 !! i) (row2 !! i)
+--     in if primaryOrder == EQ then compareWhenEqual iascdesc row1 row2 else primaryOrder
+
+compareWhenEqual :: [(Int, AscDesc)] -> Row -> Row -> Ordering
+compareWhenEqual [] _ _ = EQ
+compareWhenEqual ((i, ascdesc):iascdesc) row1 row2 =
+    let primaryOrder = compareValues ascdesc (row1 !! i) (row2 !! i)
+    in if primaryOrder == EQ then compareWhenEqual (adjustIndices iascdesc) row1 row2 else primaryOrder
+  where
+    -- Adjust indices in the list after removing an element
+    adjustIndices = map (\(idx, desc) -> (if idx > i then idx - 1 else idx, desc))
+
+compareValues :: AscDesc -> DF.Value -> DF.Value -> Ordering
+compareValues (Asc "asc") v1 v2 = compare v1 v2
+compareValues (Desc "desc") v1 v2 = compare v2 v1
+
+-- getIndexList :: OrderBy -> CartesianDataFrame -> [Int]
+-- getIndexList [] _ = []
+-- getIndexList (x:xs) df = case getIndexOrderBy (x:xs) df of
+--   Right result -> result : getIndexList xs df
+--   Left errMsg -> error errMsg  -- or handle the error appropriately
+-- getIndexList :: OrderBy -> CartesianDataFrame -> [Int]
+-- getIndexList [] _ = []
+-- getIndexList (x:xs) df = case getIndexOrderBy (x:xs) df of
+--   Right result -> result : getIndexList xs df
+--   Left errMsg -> error errMsg  -- or handle the error appropriately
+
+
+-- getIndexOrderBy :: OrderBy -> CartesianDataFrame -> Either ErrorMessage Int
+-- getIndexOrderBy ((orderByValue, ascdesc):xs) df
+--     | isColumnTable orderByValue = if validateColumnTable (toCartesianColumns df) orderByValue
+--         then Right (getColumnTableFromOrderBy (orderByValue, ascdesc) df)
+--         else Left "Non valid table.column name"
+--     | isColumnName orderByValue = if validateColumnName (getColumnNameFromOrderBy (orderByValue, ascdesc)) (deCartesianColumns (toCartesianColumns df))
+--         then Right (findColumnIndex (getColumnNameFromOrderBy (orderByValue, ascdesc)) (deCartesianColumns (toCartesianColumns df)))
+--         else Left "Non valid column name" 
+--     | otherwise = if validateColumnNumber (getColumnNumberFromOrderBy (orderByValue, ascdesc)) (toCartesianColumns df)
+--         then Right (getColumnNumberFromOrderBy (orderByValue, ascdesc))
+--         else Left "Non valid orderBy index"
+-- getIndexOrderBy :: OrderBy -> CartesianDataFrame -> Either ErrorMessage Int
+-- getIndexOrderBy ((orderByValue, ascdesc):xs) df
+--     | isColumnTable orderByValue = if validateColumnTable (toCartesianColumns df) orderByValue
+--         then Right (getColumnTableFromOrderBy (orderByValue, ascdesc) df)
+--         else Left "Non valid table.column name"
+--     | isColumnName orderByValue = if validateColumnName (getColumnNameFromOrderBy (orderByValue, ascdesc)) (deCartesianColumns (toCartesianColumns df))
+--         then Right (findColumnIndex (getColumnNameFromOrderBy (orderByValue, ascdesc)) (deCartesianColumns (toCartesianColumns df)))
+--         else Left "Non valid column name" 
+--     | otherwise = if validateColumnNumber (getColumnNumberFromOrderBy (orderByValue, ascdesc)) (toCartesianColumns df)
+--         then Right (getColumnNumberFromOrderBy (orderByValue, ascdesc))
+--         else Left "Non valid orderBy index"
+
+--Helper functions to check the constructor of OrderByValue
+isColumnTable :: OrderByValue -> Bool
+isColumnTable (ColumnTable _) = True
+isColumnTable _ = False
+
+isColumnName :: OrderByValue -> Bool
+isColumnName (ColumnName _) = True
+isColumnName _ = False
+
+getColumnNameFromOrderBy :: (OrderByValue, AscDesc) -> ColumnName
+getColumnNameFromOrderBy (ColumnName name ,ascdesc) = name
+
+getColumnNumberFromOrderBy :: (OrderByValue, AscDesc) -> Int
+getColumnNumberFromOrderBy (ColumnNumber int ,ascdesc) = fromInteger int
+
+
+--reiks patikrinimo ar egzistuoja toks (tablename, columnname)
+getColumnTableFromOrderBy :: (OrderByValue, AscDesc) -> CartesianDataFrame -> Int
+getColumnTableFromOrderBy (ColumnTable (tablename, columnname), _) (CartesianDataFrame cols rows) = findColumnTableIndex columnname tablename cols
+
+-- Helper functions to check the constructor of OrderByValue
+-- isColumnTable :: OrderByValue -> Bool
+-- isColumnTable (ColumnTable _) = True
+-- isColumnTable _ = False
+
+-- isColumnName :: OrderByValue -> Bool
+-- isColumnName (ColumnName _) = True
+-- isColumnName _ = False
+
+-- getColumnNameFromOrderBy :: (OrderByValue, AscDesc) -> String
+-- getColumnNameFromOrderBy (ColumnName name ,ascdesc) = name
+
+-- getColumnNumberFromOrderBy :: (OrderByValue, AscDesc) -> Int
+-- getColumnNumberFromOrderBy (ColumnNumber int ,ascdesc) = fromInteger int
+
+-- getColumnTableFromOrderBy :: (OrderByValue, AscDesc) -> CartesianDataFrame -> Int
+-- getColumnTableFromOrderBy (ColumnTable (tablename, columnname), _) (CartesianDataFrame cols rows) = findColumnTableIndex columnname tablename cols
+
+-- sortRows :: OrderBy -> CartesianDataFrame -> CartesianDataFrame
+-- sortRows orderBy df@(CartesianDataFrame _ rows) = CartesianDataFrame (toCartesianColumns df) (sortOn (rowComparator orderBy) rows)
+
+-- -- Function to compare rows based on OrderBy
+-- rowComparator :: OrderBy -> CartesianDataFrame -> Row -> Row -> Ordering
+-- rowComparator orderBy cdf row1 row2 = compareRows 0 orderBy row1 row2
+
+-- compareRows :: Int -> CartesianDataFrame -> OrderBy -> Row -> Row -> Ordering
+-- compareRows index cdf orderBy row1 row2 =
+--   case compareValues (row1 !! index) (row2 !! index) of
+--     EQ -> case isNextOrderBy index orderBy of
+--       True -> compareRows (getNextOrderByInt index (getIndexList orderBy cdf)) cdf orderBy row1 row2
+--       False -> EQ
+--     result -> result
+
+-- -- Function to check if a list of rows is sorted based on OrderBy
+-- isRowsSorted :: OrderBy -> [Row] -> Bool
+-- isRowsSorted orderBy rows = all (\(row1, row2) -> compareRows 0 orderBy row1 row2 /= GT) (zip rows (tail rows))
+
+-- -- Function to get the next index in OrderBy
+-- -- getNextOrderByInt :: Int -> OrderBy -> Int
+-- -- getNextOrderByInt nowOrder orderBy =
+-- --   case isNextOrderBy nowOrder orderBy of 
+-- --     True -> case head (drop (nowOrder + 1) orderBy) of
+-- --       (ColumnNumber int, _) -> fromInteger int
+-- --       _ -> -1
+-- --     False -> -1
+
+
+-- -- gal bandyti naudoti int patikrinimuo kuris orderby vyksta dabar??
+-- isNextOrderBy :: Int -> [Int] -> Bool
+-- isNextOrderBy nowOrder ints = if (length ints) >= (nowOrder + 1)
+--   then True
+--   else False
+
+-- getNextOrderByInt :: Int -> [Int] -> Int
+-- getNextOrderByInt nowOrder ints = 
+--   case isNextOrderBy nowOrder ints of 
+--     True -> (ints !! (nowOrder + 1))
+--     False -> -1
+
+-- getNextOrderByAscDesc :: Int -> [Int] -> [AscDesc] -> AscDesc
+-- getNextOrderByAscDesc nowOrder ints ascdescs =
+--   case isNextOrderBy nowOrder ints of 
+--     True -> (ascdescs !! (nowOrder + 1))
+--     False -> Asc "asc"
+
+-- -- Compare values at a specific index in rows --      lygu  ascdesc
+-- -- compareRows :: Int -> AscDesc -> Row -> Row -> Either Bool Bool
+-- -- compareRows index ascdesc row1 row2 = 
+-- --   case ifEqual (row1 !! index) (row2 !! index) of
+-- --     False -> if ascdesc == Asc "asc" 
+-- --       then Right $ compareValuesAsc (row1 !! index) (row2 !! index)
+-- --       else Right $ compareValuesDesc (row1 !! index) (row2 !! index)
+-- --     True -> Left True
+-- compareValues :: Value -> Value -> Ordering
+-- compareValues (IntegerValue a) (IntegerValue b) = compare a b
+-- compareValues (StringValue a) (StringValue b) = compare a b
+-- compareValues (BoolValue a) (BoolValue b) = compare a b
+-- compareValues NullValue NullValue = EQ
+-- compareValues NullValue _ = LT
+-- compareValues _ NullValue = GT
+-- compareValues _ _ = error "Unsupported comparison"
+
+-- ifEqual :: DF.Value -> DF.Value -> Bool
+-- ifEqual (IntegerValue a) (IntegerValue b) = a == b
+-- ifEqual (StringValue a) (StringValue b) = a == b
+-- ifEqual (BoolValue a) (BoolValue b) = a == b
+-- ifEqual NullValue NullValue = True
+-- ifEqual NullValue _ = False
+-- ifEqual _ NullValue = False
+-- ifEqual _ _ = error "Unsupported comparison"
+
+-- -- Compare values of two Value types
+-- compareValuesAsc :: DF.Value -> DF.Value -> Bool
+-- compareValuesAsc (IntegerValue a) (IntegerValue b) = a > b
+-- compareValuesAsc (StringValue a) (StringValue b) = a > b
+-- compareValuesAsc (BoolValue a) (BoolValue b) = a > b
+-- compareValuesAsc NullValue _ = False
+-- compareValuesAsc _ NullValue = True
+-- compareValuesAsc _ _ = error "Unsupported comparison"
+
+-- compareValuesDesc :: DF.Value -> DF.Value -> Bool
+-- compareValuesDesc (IntegerValue a) (IntegerValue b) = a < b
+-- compareValuesDesc (StringValue a) (StringValue b) = a < b
+-- compareValuesDesc (BoolValue a) (BoolValue b) = a < b
+-- compareValuesDesc NullValue _ = True
+-- compareValuesDesc _ NullValue = False
+-- compareValuesDesc _ _ = error "Unsupported comparison"
+
+-- -- Bubble sort for rows based on values at a specific index
+-- bubbleSortRows :: Int -> [Int] -> [AscDesc] -> [Row] -> [Row]
+-- bubbleSortRows _ _ _ [] = []
+-- bubbleSortRows _ _ _ [x] = [x]
+-- bubbleSortRows index indexes ascdesc (x:y:xs) =
+--   case compareRows index (ascdesc !! index) x y of
+--     Right b -> if b
+--       then y : bubbleSortRows index indexes [(ascdesc !! index)] (x : xs)
+--       else x : bubbleSortRows index indexes [(ascdesc !! index)] (y : xs)
+--     Left True -> abc index indexes ascdesc ([x] ++ [y])
+
+-- abc :: Int -> [Int] -> [AscDesc] -> [Row] -> [Row]
+-- abc i indexes ascdesc rows = case isNextOrderBy i indexes of
+--   True -> bubbleSortRows (getNextOrderByInt i indexes) indexes ascdesc rows
+--   False -> rows
+
+-- -- Check if a list of rows is sorted based on values at a specific index
+-- isRowsSorted :: Int -> AscDesc -> [Row] -> Bool
+-- isRowsSorted _ _ [] = True
+-- isRowsSorted _ _ [x] = True
+-- isRowsSorted index ascdesc (x:y:xs) =
+--   case compareRows index ascdesc x y of
+--     Right b -> case b of
+--       True -> False
+--       False -> isRowsSorted index ascdesc (y:xs)
+--     Left _ -> case isNextOrderBy index indexes of
+
+
+-- -- Bubble sort for rows with a main function
+-- bubbleSortRowsMain :: Int -> [Int] -> [AscDesc] -> [Row] -> [Row]
+-- bubbleSortRowsMain index indexes ascdesc list =
+--   if isRowsSorted (indexes !! index) (ascdesc !! index) list
+--     then list
+--     else bubbleSortRowsMain index indexes ascdesc (bubbleSortRows index indexes ascdesc list)
+
+-----------------petras---------------------
+-- -- Compare values based on AscDesc
+-- compareValuesAscDesc :: AscDesc -> Row -> Row -> Ordering
+-- compareValuesAscDesc (Asc "asc") row1 row2 = compare row1 row2
+-- compareValuesAscDesc (Desc "desc") row1 row2 = compare row2 row1
+-- compareValuesAscDesc _ _ _ = error "Unsupported comparison"
+
+-- -- Bubble sort for rows based on values at a specific index
+-- bubbleSortRows :: Int -> AscDesc -> [Row] -> [Row]
+-- bubbleSortRows _ _ [] = []
+-- bubbleSortRows _ _ [x] = [x]
+-- bubbleSortRows index ascdesc (x:y:xs) =
+--   case compareRows index ascdesc x y of
+--     GT -> y : bubbleSortRows index ascdesc (x : xs)
+--     _  -> x : bubbleSortRows index ascdesc (y : xs)
+
+-- -- Bubble sort for rows with a main function
+-- bubbleSortRowsMain :: Int -> AscDesc -> [Row] -> [Row]
+-- bubbleSortRowsMain index ascdesc list =
+--   if isRowsSorted index ascdesc list
+--     then list
+--     else bubbleSortRowsMain index ascdesc (bubbleSortRows index ascdesc list)
+
+-- isNextOrderBy :: Int -> [a] -> Bool
+-- isNextOrderBy nowOrder list = length list > nowOrder
+
+-- -- Get the value at the next order by
+-- getNextOrderBy :: Int -> [a] -> a
+-- getNextOrderBy nowOrder list = if isNextOrderBy nowOrder list
+--   then list !! nowOrder
+--   else error "Index out of bounds"
+
+-- -- Compare values at a specific index in rows
+-- -- compareRows :: Int -> AscDesc -> Row -> Row -> Ordering
+-- -- compareRows index ascdesc row1 row2 =
+-- --   case compare (row1 !! index) (row2 !! index) of
+-- --     EQ -> compareValuesAscDesc ascdesc row1 row2
+-- --     result -> result
+
+-- -- isRowsSorted :: Int -> AscDesc -> [Row] -> Bool
+-- -- isRowsSorted _ _ [] = True
+-- -- isRowsSorted index ascdesc (x:y:xs) =
+-- --   case compareRows index ascdesc x y of
+-- --     GT -> False
+-- --     _  -> isRowsSorted index ascdesc (y:xs)
+
+-- -- Updated compareValuesAscDesc to handle descending order correctly
+-- compareValuesAscDesc :: AscDesc -> Row -> Row -> Ordering
+-- compareValuesAscDesc (Asc "asc") row1 row2 = compare row1 row2
+-- compareValuesAscDesc (Desc "desc") row1 row2 = compare row2 row1
+-- compareValuesAscDesc _ _ _ = error "Unsupported comparison"
+
+-- -- Updated compareRows to handle descending order correctly
+-- compareRows :: Int -> AscDesc -> Row -> Row -> Ordering
+-- compareRows index ascdesc row1 row2 =
+--   case compare (row1 !! index) (row2 !! index) of
+--     EQ -> compareValuesAscDesc ascdesc row1 row2
+--     result -> result
+
+
+-- sortDataFrame :: OrderBy -> CartesianDataFrame -> CartesianDataFrame
+-- sortDataFrame orderBy (CartesianDataFrame cols rows) =
+--   let sortedRows = sortOn (\row -> map (\(orderByValue, _) -> row !! getSortIndex orderByValue) orderBy) rows
+--   in CartesianDataFrame cols sortedRows
+
+-- getSortIndex :: OrderByValue -> Int
+-- getSortIndex (ColumnName _) = 0
+-- getSortIndex (ColumnTable _) = 0
+-- getSortIndex (ColumnNumber i) = i
+--bubbleSort :: OrderBy -> CartesianDataFrame -> CartesianDataFrame
+--bubbleSort orderBy cdf@(CartesianDataFrame cols rows) = do
+--  let indexes = getIndexList orderBy cdf
+--  let ascDesc = toAscDescList orderBy
+
+--bubbleSortMainMain :: [Int] -> [AscDesc] -> [Row] -> [Row]
+--bubbleSortMainMain [] [] _ = []
+--bubbleSortMainMain (x:xs) (y:ys) rows = bubbleSortRowsMain x y rows |> bubbleSortMainMain xs ys rows
+
+-----------------------------------------------------------------
 
 selectNowParser :: Parser4 ParsedStatement3
 selectNowParser = do
@@ -695,24 +1690,34 @@ columnTypeParser "varchar" = Right StringType
 columnTypeParser "bool" = Right BoolType
 columnTypeParser other = Left $ "There is no such type as: " ++ other
 
---sitas gali ir neveikti:
-parseSatisfy :: (Char -> Bool) -> Parser4 Char
-parseSatisfy pr = EitherT $ state $ \input ->
-  case input of
-    (x:xs) -> if pr x then (Right x, xs) else (Left ("Unexpected character: " ++ [x]), input)
-    [] -> (Left "Empty input", input)
+-- --sitas gali ir neveikti:
+-- parseSatisfy :: (Char -> Bool) -> Parser4 Char
+-- parseSatisfy pr = EitherT $ state $ \input ->
+--   case input of
+--     (x:xs) -> if pr x then (Right x, xs) else (Left ("Unexpected character: " ++ [x]), input)
+--     [] -> (Left "Empty input", input)
 
---sitas gali ir neveikti:
+
+parseSatisfy :: (Char -> Bool) -> Parser4 Char
+parseSatisfy predicate = EitherT $ state $ \inp ->
+    case inp of
+        [] -> (Left "Empty input", inp)
+        (x:xs) -> if predicate x 
+                then (Right x, xs) 
+                else (Left ("Unexpected character: " ++ [x]), inp)
+
 queryStatementParser :: String -> Parser4 String
-queryStatementParser stmt = do
-  input <- lift get
-  case take (length stmt) input of
-    [] -> throwE "Expected ;"
-    xs
-      | map toLower xs == map toLower stmt -> do
-        lift $ put $ drop (length xs) stmt
-        return xs
-      | otherwise -> throwE $ "Expected " ++ stmt ++ " or query contains unnecessary words"
+queryStatementParser keyword = do
+    inp <- lift get  
+    let len = length keyword
+    case splitAt len inp of
+        ([], _) -> throwE "Empty input"  
+        (xs, rest) 
+            | map toLower xs == map toLower keyword -> do
+                lift $ put rest 
+                return xs
+            | otherwise -> throwE $ "Expected " ++ keyword ++ ", but found " ++ xs
+
 
 whitespaceParser :: Parser4 String
 whitespaceParser = do
@@ -729,31 +1734,51 @@ seperate p sep = do
     xs <- many (sep *> p)
     return (x:xs)
 
+-- columnNameParser :: Parser4 ColumnName
+-- columnNameParser = do
+--   input <- lift get
+--   case takeWhile (\x -> isAlphaNum x || x == '_') input of
+--     [] -> throwE "Empty input"
+--     xs -> do
+--       lift $ put $ drop (length xs) input
+--       return xs
+
 columnNameParser :: Parser4 ColumnName
 columnNameParser = do
-  input <- lift get
-  case takeWhile (\x -> isAlphaNum x || x == '_') input of
-    [] -> throwE "Empty input"
-    xs -> do
-      lift $ put $ drop (length xs) input
-      return xs
+    inp <- lift get  
+    let word = takeWhile (\x -> isAlphaNum x || x == '_') inp
+    case word of
+        [] -> throwE "Empty input3"
+        xs -> do
+            lift $ put $ drop (length xs) inp 
+            return xs
+
+
+-- char :: Char -> Parser4 Char
+-- char c = do
+--   input <- lift get
+--   case input of
+--     [] -> throwE "Empty input"
+--     (x:xs) -> if x == c then do 
+--                             lift $ put xs 
+--                             return c
+--                         else throwE ("Expected " ++ [c])
 
 char :: Char -> Parser4 Char
-char c = do
-  input <- lift get
-  case input of
-    [] -> throwE "Empty input"
-    (x:xs) -> if x == c then do 
-                            lift $ put xs 
-                            return c
-                        else throwE ("Expected " ++ [c])
-
+char a = do
+    inp <- lift get
+    case inp of
+        [] -> throwE "Empty input4"
+        (x:xs) -> if a == x then do
+                                lift $ put xs
+                                return a
+                            else throwE ([a] ++ " expected but " ++ [x] ++ " found")
 
 numberParser :: Parser4 Integer
 numberParser = do
   input <- lift get
   case takeWhile (\x -> isDigit x) input of
-    [] -> throwE "Empty input"
+    [] -> throwE "Empty input5"
     xs -> do
       lift $ put $ drop (length xs) input
       return $ stringToInt xs
@@ -852,3 +1877,400 @@ stopParseAt  = do
                   lift $ put []
                   return []
           s -> throwE ("Characters found after ;" ++ s)
+
+----------------------------LIB3 STUFF-------------------------
+
+filterConditionVol2 :: [Column] -> [Row] -> Condition -> [Condition] -> Either ErrorMessage [Row]
+filterConditionVol2 _ [] _ _ = Right []
+filterConditionVol2 columns (x:xs) condition selectUpdate =
+  if conditionResult columns x condition
+    then case changeByRequest columns x selectUpdate of
+           Right newRow -> (newRow :) <$> filterConditionVol2 columns xs condition selectUpdate
+           Left err -> Left err
+    else (x :) <$> filterConditionVol2 columns xs condition selectUpdate
+
+changeByRequest :: [Column] -> Row -> [Condition] -> Either ErrorMessage Row
+changeByRequest df row [] = Right row
+changeByRequest columns row (condition:conditions) =
+  case forOneCondition columns row condition of
+    Right newRow -> changeByRequest columns newRow conditions
+    Left err -> Left err
+
+
+forOneCondition :: [Column] -> Row -> Condition -> Either ErrorMessage Row
+forOneCondition columns row condition = do
+  let conditions = whereConditionColumnName condition
+  let values = whereConditionValues condition
+  (if hasTwoColumnNames conditions
+    then changeByRequestTwoColumns columns row conditions values
+    else if hasTwoValues values
+      then Left "The conditions are not valid"
+        else changeByRequestForOne columns row conditions values)
+
+changeByRequestTwoColumns :: [Column] -> [DF.Value] -> [ColumnName] -> [DF.Value] -> Either ErrorMessage [DF.Value]
+changeByRequestTwoColumns columns row setColumn setValue = do
+  let index1 = findColumnIndex (head setColumn) columns
+  let index2 = findColumnIndex (last setColumn) columns
+  let foundElem = row !! index2
+  let newRow = replaceNth index1 foundElem row
+  case newRow of
+    _ -> Right newRow
+    [] -> Left "Sorry"
+
+changeByRequestForOne :: [Column] -> [DF.Value] -> [ColumnName] -> [DF.Value] -> Either ErrorMessage [DF.Value]
+changeByRequestForOne columns row setColumn setValue = do
+  let index = findColumnIndex (head setColumn) columns
+  let newRow = replaceNth index (head setValue) row
+  case newRow of
+    _ -> Right newRow
+    [] -> Left "Sorry"
+
+replaceNth :: Int -> DF.Value -> [DF.Value] -> [DF.Value]
+replaceNth _ _ [] = []
+replaceNth n newVal (x:xs)
+  | n == 0 = newVal:xs
+  | otherwise = x:replaceNth (n-1) newVal xs
+
+whereConditionValues :: Condition -> [DF.Value]
+whereConditionValues (Condition op1 _ op2) =
+  case op1 of
+    ConstantOperand name1 -> case op2 of
+      ConstantOperand name2 -> [name1] ++ [name2]
+      _ -> [name1]
+    ColumnOperand _ -> case op2 of
+      ConstantOperand name -> [name]
+      ColumnOperand _ -> []
+
+hasTwoValues :: [DF.Value] -> Bool
+hasTwoValues values = length values == 2
+
+hasTwoColumnNames :: [ColumnName] -> Bool
+hasTwoColumnNames columnNames = length columnNames == 2
+
+filterSelectVol2 :: DataFrame -> [Condition] -> [Condition] -> Either ErrorMessage DataFrame
+filterSelectVol2 df [] _ = Right df
+filterSelectVol2 df@(DataFrame colsOg rowsOg) selectUpdate wh@(x:xs) = do
+  let columns = whereConditionColumnList selectUpdate
+  let columnsAlso = whereConditionColumnList wh
+  case doColumnsExist columns df && doColumnsExist columnsAlso df of
+    True -> do
+      filteredRows <- filterConditionVol2 colsOg rowsOg x selectUpdate
+      filterSelectVol2 (DataFrame colsOg filteredRows) xs selectUpdate
+    False -> Left "The provided columns do not exist in this table"
+
+-------------------------------some JSON stuff------------------------------------
+
+toJSONtable :: (TableName, (DataFrame)) -> String
+toJSONtable table = "{\"Table\":"++"" ++ show (fst (table)) ++ ""++",\"Columns\":[" ++ toJSONColumns (toColumnList (snd (table))) ++ "],\"Rows\":[" ++ toJSONRows (toRowList (snd (table))) ++"]}"
+
+toJSONColumn :: Column -> String
+toJSONColumn column = "{\"Name\":"++"" ++ show (getColumnName (column)) ++ ",\"ColumnType\":"++"\"" ++ show (getType (column)) ++ "\""++"}"
+
+toJSONRowValue :: DF.Value -> String
+toJSONRowValue value = "{\"Value\":"++"\"" ++ fixedValueString (show (value)) ++ "\""++"}"
+
+fixedValueString :: String -> String
+fixedValueString [] = []
+fixedValueString (x:xs)
+  |x /= '"' = [x] ++ fixedValueString xs
+  |otherwise = fixedValueString xs
+---------------------------------------some get stuff----------------------------
+
+toColumnList :: DataFrame -> [Column]
+toColumnList (DataFrame col row)  = col
+
+toRowList :: DataFrame -> [Row]
+toRowList (DataFrame co row) = row
+
+----------------------------------recursive stuff-------------------------------
+
+toJSONColumns :: [Column] -> String
+toJSONColumns (x:xs)
+  |xs /= [] = toJSONColumn x ++ "," ++ toJSONColumns xs
+  |otherwise = toJSONColumn x
+
+toJSONRow :: Row -> String
+--toJSONRow [] = []
+toJSONRow (x:xs)
+  |xs /= [] = toJSONRowValue x ++ "," ++ toJSONRow xs
+  |otherwise = toJSONRowValue x
+
+toJSONRows :: [Row] -> String
+toJSONRows [] = []
+toJSONRows (x:xs)
+  |xs /= [] = "{\"Row\":[" ++ toJSONRow x ++ "]}," ++ toJSONRows xs
+  |otherwise = "{\"Row\":[" ++ toJSONRow x ++ "]}"
+
+
+--------------------------------Files--------------------------------------------
+
+toFilePath :: TableName -> FilePath
+toFilePath tableName = "db/" ++ show (tableName) ++ ".json" --".txt"
+
+serializedContent :: (TableName, DataFrame) -> Either ErrorMessage FileContent
+serializedContent table = case checkRows table of
+  True -> return (serializedTable table)
+  False -> do
+    _ <- Lib1.validateDataFrame (snd table)
+    return (serializedTable table)
+
+checkRows :: (TableName, DataFrame) -> Bool
+checkRows (_, DataFrame _ rows)
+  | rows == [] =  True
+  | otherwise = False
+
+serializedTable :: (TableName, DataFrame) -> FileContent
+serializedTable table = (toJSONtable (table))
+
+------------------------------utilities for select execution-------------------
+
+areTablesValid :: [DataFrame] -> Bool
+areTablesValid [] = True
+areTablesValid (x:xs)
+  | Lib2.validateDataFrame x = areTablesValid xs 
+  | otherwise = False
+-----------------------------------su columns:----------------------------------
+processSelect2 :: CartesianDataFrame -> [Aggregate2] -> Either ErrorMessage ([Column],Row)
+processSelect2 cdf aggregateList =
+  case processSelectAggregates (deCartesianDataFrame cdf) (getColumnsAggregates aggregateList) of 
+    Right tuples -> Right (fst (switchListToTuple tuples), head $ snd (switchListToTuple tuples))
+    Left err -> Left err
+-----------------------su columns ir ju tables:---------------------------------
+processSelect2' :: CartesianDataFrame -> [Aggregate2] -> Either ErrorMessage ([Column],Row)
+processSelect2' cdf aggregateList =
+  case processSelectAggregates' cdf (getColumnsTablesAggregates aggregateList) of 
+    Right tuple -> Right (fst (switchListToTuple tuple), head $ snd (switchListToTuple tuple))
+    Left err -> Left err
+
+processSelectAggregates' :: CartesianDataFrame -> [(AggregateFunction, (TableName, ColumnName))] -> Either ErrorMessage [(Column, Row)]
+processSelectAggregates' _ [] = Right []
+processSelectAggregates' (CartesianDataFrame cc rows) ((func,(tableName, columnName)):xs) =
+  case func of
+    Max -> do
+      let maxResult = findMax $ rowListToRow (getCartesianRows cc rows [(tableName,columnName)])
+      restResult <- processSelectAggregates' (CartesianDataFrame cc rows) xs
+      let newColumn = Column ("Max "++ tableName ++ "." ++ columnName) (head $ getColumnTablesType [columnName] tableName cc)
+      return $ (newColumn, fromRight [] maxResult) : restResult
+    Sum -> do
+      case (head $ getColumnTablesType [columnName] tableName cc) == IntegerType of
+        True -> do
+          let sumResult = findSum $ rowListToRow (getCartesianRows cc rows [(tableName,columnName)])
+          restResult <- processSelectAggregates' (CartesianDataFrame cc rows) xs
+          let newColumn = Column ("Sum "++ tableName ++ "." ++columnName) (head $ getColumnTablesType [columnName] tableName cc)
+          return $ (newColumn, fromRight [] sumResult) : restResult
+        False -> Left "Selected column should have integers"
+
+getColumnTablesType :: [ColumnName] -> TableName -> [CartesianColumn] -> [ColumnType]
+getColumnTablesType [] _ _ = []
+getColumnTablesType (x:xs) table col = columnTableType col 0 (findColumnTableIndex x table col) : getColumnTablesType xs table col
+
+columnTableType :: [CartesianColumn] -> Int -> Int -> ColumnType
+columnTableType (x:xs) i colIndex
+  | i == colIndex = getColumnTableType x
+  | otherwise = columnTableType xs (i+1) colIndex
+
+getColumnTableType :: CartesianColumn -> ColumnType
+getColumnTableType (CartesianColumn (_, Column _ colType)) = colType
+
+--------------------------------------------------------------------------------
+getConcatColumnsRows :: ([Column], [Row]) -> ([Column], [Row]) -> ([Column], [Row])
+getConcatColumnsRows (col1, row1) (col2, row2) = (col1++col2, getConcatRows row1 row2)
+
+getConcatRows :: [Row] -> [Row] -> [Row]
+getConcatRows [] [] = []
+getConcatRows (x:xs) (y:ys) = [x ++ y] ++ getConcatRows xs ys
+
+--patikrinimui ar ne ambiguous
+getColumnsFromAggregates :: [Aggregate2] -> [ColumnName]
+getColumnsFromAggregates [] = []
+getColumnsFromAggregates (x:xs) =
+  case x of
+    AggregateColumn (_, columnName) -> columnName : getColumnsFromAggregates xs
+    AggregateColumnTable _ -> getColumnsFromAggregates xs
+
+getColumnsAggregates :: [Aggregate2] -> [(AggregateFunction, ColumnName)]
+getColumnsAggregates [] = []
+getColumnsAggregates (x:xs) =
+  case x of
+    AggregateColumn a -> a : getColumnsAggregates xs
+    AggregateColumnTable _ -> getColumnsAggregates xs
+
+getColumnsTablesAggregates :: [Aggregate2] -> [(AggregateFunction, (TableName, ColumnName))]
+getColumnsTablesAggregates [] = []
+getColumnsTablesAggregates (x:xs) =
+  case x of
+    AggregateColumnTable a -> a : getColumnsTablesAggregates xs
+    AggregateColumn _ -> getColumnsTablesAggregates xs
+
+getColumnsTablesAggregatesList :: [(AggregateFunction, (TableName, ColumnName))] -> [(TableName, ColumnName)]
+getColumnsTablesAggregatesList [] = []
+getColumnsTablesAggregatesList ((_,(tn, cn)):xs) = (tn, cn) : getColumnsTablesAggregatesList xs 
+
+------------------Stuff with cartesian products and dataframes-----------------
+
+getColumnsTablesList :: [(TableName, ColumnName)] -> CartesianDataFrame -> ([CartesianColumn], [Row])
+getColumnsTablesList colsWithTables (CartesianDataFrame cols rows) = (getCartesianColumns colsWithTables cols, getCartesianRows cols rows colsWithTables)
+
+getCartesianColumns :: [(TableName, ColumnName)] -> [CartesianColumn] -> [CartesianColumn]
+getCartesianColumns [] _ = []
+getCartesianColumns (x:xs) cc = getCartesianColumn x cc : getCartesianColumns xs cc
+
+getCartesianColumn :: (TableName, ColumnName) -> [CartesianColumn] -> CartesianColumn
+getCartesianColumn (tn, cn) (cc@(CartesianColumn (table, Column name _)):xs)
+  | tn /= table || cn /= name = getCartesianColumn (tn,cn) xs
+  | otherwise = cc
+
+getCartesianRows :: [CartesianColumn] -> [Row] -> [(TableName, ColumnName)] -> [Row]
+getCartesianRows _ [] _ = []
+getCartesianRows cc (x:xs) colsWithTables = getCartesianRow x cc colsWithTables : getCartesianRows cc xs colsWithTables
+
+getCartesianRow :: [DF.Value] -> [CartesianColumn] -> [(TableName, ColumnName)] -> [DF.Value]
+getCartesianRow _ _ [] = []
+getCartesianRow row cc ((tn,cn):xs) = getValueFromRow row (findColumnTableIndex cn tn cc) 0 : getCartesianRow row cc xs
+
+cartesianDataFrame :: [DataFrame] -> DataFrame
+cartesianDataFrame [] = DataFrame [] []
+cartesianDataFrame (df@(DataFrame cols rows):xs) = case getNextDataFrame xs of
+  Nothing -> df
+  Just nextDf -> cartesianDataFrame $ [DataFrame (cols ++ dcols) (cartesianProduct rows drows)] ++ rest
+    where
+      DataFrame dcols drows = nextDf
+      rest = filter (/= nextDf) xs
+
+cartesianProduct :: [[a]] -> [[a]] -> [[a]]
+cartesianProduct xs ys = [x ++ y | x <- xs, y <- ys]
+
+createCartesianDataFrame :: [DataFrame] -> TableArray -> CartesianDataFrame
+createCartesianDataFrame df tables = getCartesianDataFrame $ createCartesianDataFrames df tables
+
+createCartesianDataFrames :: [DataFrame] -> TableArray -> [CartesianDataFrame]
+createCartesianDataFrames ((DataFrame cols rows):xs) (y:ys) = case getNextDataFrame xs of
+  Nothing -> [CartesianDataFrame (createCartesianColumns cols y) rows]
+  Just (DataFrame dcols drows) -> [CartesianDataFrame (createCartesianColumns cols y) rows] ++ createCartesianDataFrames xs ys
+
+createCartesianColumns :: [Column] -> TableName -> [CartesianColumn]
+createCartesianColumns (x:xs) table = case getNextDataFrame xs of
+  Nothing -> [CartesianColumn (table, x)]
+  Just _ -> [CartesianColumn (table, x)] ++ createCartesianColumns xs table
+
+getCartesianDataFrame :: [CartesianDataFrame] -> CartesianDataFrame
+getCartesianDataFrame [] = CartesianDataFrame [] []
+getCartesianDataFrame (cdf@(CartesianDataFrame cols rows):xs) =
+    case getNextDataFrame xs of
+      Nothing -> cdf
+      Just nextCdf ->
+          getCartesianDataFrame $ [CartesianDataFrame (cols ++ dcols) (cartesianProduct rows drows)] ++ rest
+            where
+              CartesianDataFrame dcols drows = nextCdf
+              rest = filter (/= nextCdf) xs
+
+deCartesianDataFrame :: CartesianDataFrame -> DataFrame
+deCartesianDataFrame (CartesianDataFrame cols rows) = DataFrame (deCartesianColumns cols) rows
+
+deCartesianColumns :: [CartesianColumn] -> [Column]
+deCartesianColumns [] = []
+deCartesianColumns ((CartesianColumn (_, col)):xs) = [col] ++ deCartesianColumns xs
+
+getNextDataFrame :: [a] -> Maybe a
+getNextDataFrame [] = Nothing
+getNextDataFrame (y:_) = Just y
+
+--------------------------------------------------------------------------------
+
+doColumnsExistDFs :: [ColumnName] -> [DataFrame] -> Bool
+doColumnsExistDFs _ [] = False
+doColumnsExistDFs colNames dataFrames = all (\colName -> any (\df -> doColumnsExist [colName] df) dataFrames) colNames
+
+whereConditionColumnList2 :: [Condition] -> [(TableName, ColumnName)]
+whereConditionColumnList2 [] = []
+whereConditionColumnList2 (x:xs) = whereConditionColumnName2 x ++ whereConditionColumnList2 xs
+
+whereConditionColumnName2 :: Condition -> [(TableName, ColumnName)]
+whereConditionColumnName2 (Condition op1 _ op2) =
+  case op1 of
+    ColumnTableOperand name1 -> case op2 of
+      ColumnTableOperand name2 -> [name1] ++ [name2]
+      _ -> [name1]
+    ConstantOperand _ -> case op2 of
+      ColumnTableOperand name -> [name]
+      ConstantOperand _ -> []
+    ColumnOperand _ -> []
+
+doColumnsExistProvidedDfs :: TableArray -> [DataFrame] -> [(TableName, ColumnName)] -> Bool
+doColumnsExistProvidedDfs _ _ [] = True
+doColumnsExistProvidedDfs ta dfs ((table, column):xs)
+  | checkIfConditionsMatchesWithData ta dfs (table, column) = doColumnsExistProvidedDfs ta dfs xs
+  | otherwise = False
+
+checkIfConditionsMatchesWithData :: TableArray -> [DataFrame] -> (TableName, ColumnName) -> Bool
+checkIfConditionsMatchesWithData [] _ _ = False
+checkIfConditionsMatchesWithData _ [] _ = False
+checkIfConditionsMatchesWithData (table:tables) (df:dataFrames) (targetTable, targetColumn)
+  | table == targetTable && doColumnsExist [targetColumn] df = True
+  | otherwise = checkIfConditionsMatchesWithData tables dataFrames (targetTable, targetColumn)
+
+checkForMatchingColumns :: [ColumnName] -> [ColumnName] -> Bool
+checkForMatchingColumns _ [] = True
+checkForMatchingColumns columns (x:xs)
+  | checkForMoreThanOne columns x 0 < 2 = checkForMatchingColumns columns xs
+  | otherwise = False
+
+checkForMoreThanOne :: [ColumnName] -> ColumnName -> Int -> Int
+checkForMoreThanOne [] _ i = i
+checkForMoreThanOne (x:xs) column i =
+  if x == column
+    then checkForMoreThanOne xs column (i + 1)
+    else checkForMoreThanOne xs column i
+
+getAllColumnsCartesianDF :: CartesianDataFrame -> [ColumnName]
+getAllColumnsCartesianDF (CartesianDataFrame cols _) = getAllColumnNamesCartesianDF $ getColumnListFromCartesianDF cols
+
+getAllColumnNamesCartesianDF :: [Column] -> [ColumnName]
+getAllColumnNamesCartesianDF [] = []
+getAllColumnNamesCartesianDF ((Column name _):xs) = [name] ++ getAllColumnNamesCartesianDF xs
+
+------------------------------filter selectAll----------------------------------
+
+filterSelectAll :: CartesianDataFrame -> [Condition] -> CartesianDataFrame
+filterSelectAll df [] = df
+filterSelectAll (CartesianDataFrame colsOg rowsOg) (x:xs) = filterSelectAll (CartesianDataFrame colsOg $ filterConditionAll colsOg rowsOg x) xs
+
+filterConditionAll :: [CartesianColumn] -> [Row] -> Condition -> [Row]
+filterConditionAll _ [] _ = []
+filterConditionAll cartesianColumns (x:xs) condition =
+  if conditionResultAll cartesianColumns x condition
+    then [x] ++ filterConditionAll cartesianColumns xs condition
+    else filterConditionAll cartesianColumns xs condition
+
+conditionResultAll :: [CartesianColumn] -> Row -> Condition -> Bool
+conditionResultAll cartesianColumns row (Condition op1 operator op2) =
+  let v1 = getFilteredValueAll op1 cartesianColumns row
+      v2 = getFilteredValueAll op2 cartesianColumns row
+  in
+    case operator of
+    IsEqualTo -> v1 == v2
+    IsNotEqual -> v1 /= v2
+    IsLessThan -> v1 < v2
+    IsGreaterThan -> v1 > v2
+    IsLessOrEqual -> v1 <= v2
+    IsGreaterOrEqual -> v1 >= v2
+
+getFilteredValueAll :: Operand -> [CartesianColumn] -> Row -> DF.Value
+getFilteredValueAll (ConstantOperand value) _ _ = value
+getFilteredValueAll (ColumnOperand columnName) cartesianColumns row = getValueFromRow row (findColumnIndex columnName $ getColumnListFromCartesianDF cartesianColumns) 0
+getFilteredValueAll (ColumnTableOperand (table, columnName)) cartesianColumns row = getValueFromRow row (findColumnTableIndex columnName table cartesianColumns) 0
+
+findColumnTableIndex :: ColumnName -> TableName -> [CartesianColumn] -> Int
+findColumnTableIndex columnName tableName columns = columnTableIndex columnName tableName columns 0
+
+columnTableIndex :: ColumnName -> TableName -> [CartesianColumn] -> Int -> Int
+columnTableIndex _ _ [] index = index
+columnTableIndex columnName tableName ((CartesianColumn (table, (Column name _))):xs) index
+    | columnName /= name || tableName /= table = (columnTableIndex columnName tableName xs (index + 1))
+    | otherwise = index
+
+getColumnListFromCartesianDF :: [CartesianColumn] -> [Column]
+getColumnListFromCartesianDF [] = []
+getColumnListFromCartesianDF ((CartesianColumn (table, column)):xs) = [column] ++ getColumnListFromCartesianDF xs
+
+----------------------------end of select execute utillities--------------------

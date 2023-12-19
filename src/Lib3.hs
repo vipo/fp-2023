@@ -22,7 +22,11 @@ module Lib3
     serializedContent,
     SelectedColumns(..),
     NowFunction,
-    FromJSONValue
+    FromJSONValue,
+    DeserializedContent,
+    CartesianColumn(..),
+    CartesianDataFrame(..),
+    UTCTime
   )
 where
 import Lib2
@@ -72,6 +76,7 @@ data ExecutionAlgebra next =
   | LoadFile TableName (Either ErrorMessage DeserializedContent -> next)
   | SaveFile  (TableName, DataFrame) (() -> next)
   | GetTime (UTCTime -> next)
+  | DropFile TableName (Maybe ErrorMessage -> next)
   -- feel free to add more constructors heres 
   deriving Functor
 
@@ -189,6 +194,13 @@ data ParsedStatement2 =
     selectWhere :: Maybe WhereSelect
   }
   | ShowTables { }
+  | DropTable {
+    table :: TableName
+  }
+  | CreateTable {
+    table :: TableName,
+    newColumns :: [Column]
+  }
     deriving (Show, Eq)
 
 data SelectedColumns = ColumnsSelected [ColumnName]
@@ -209,6 +221,9 @@ getTables = liftF $ GetTables id
 
 saveFile :: (TableName, DataFrame) -> Execution ()
 saveFile table = liftF $ SaveFile table id
+
+dropFile :: TableName -> Execution (Maybe ErrorMessage)
+dropFile table = liftF $ DropFile table id
 
 -----------------------------executeSql queries-----------------------------
 
@@ -288,6 +303,17 @@ executeSql sql = case parseStatement2 sql of
       Left err -> return $ Left err
   Left err -> return $ Left err
 
+  Right (DropTable table) -> do
+        _ <- dropFile table
+        return $ Right (DataFrame [] [])
+
+  Right (CreateTable table columns) -> do
+        content <- loadFile table
+        case content of
+            Left _ -> do
+                saveFile (table, DataFrame columns [])
+                return $ Right (DataFrame columns [])
+            Right _ -> return $ Left "This name of table is already used." 
 -----------------------------------executeSql queries------------------------------------
 --------------------------------------Load FILES-----------------------------------------
 
@@ -583,6 +609,12 @@ parseStatement2 query = case runParser p query of
         SelectNow -> case runParser stopParseAt rest of
           Left err2 -> Left err2
           Right _ -> Right query
+        DropTable _  -> case runParser stopParseAt rest of
+          Left err2 -> Left err2
+          Right _ -> Right query
+        CreateTable _ _ -> case runParser stopParseAt rest of
+          Left err2 -> Left err2
+          Right _ -> Right query
     where
         p :: Parser ParsedStatement2
         p = showTableParser
@@ -593,6 +625,7 @@ parseStatement2 query = case runParser p query of
                <|> updateParser
                <|> deleteParser
                <|> selectNowParser
+               <|> dropTableParser 
 
 --------------------ParseStatement ends-----------------------------------------
 -----------------Executes for show and select statements------------------------
@@ -1246,3 +1279,48 @@ showTableParser = do
     table <- columnNameParser
     _ <- optional whitespaceParser
     pure $ Lib3.ShowTable table
+
+
+dropTableParser :: Parser ParsedStatement2
+dropTableParser = do
+    _ <- queryStatementParser "drop"
+    _ <- whitespaceParser
+    _ <- queryStatementParser "table"
+    _ <- whitespaceParser
+    table <- columnNameParser 
+    pure $ DropTable table
+
+createTableParser :: Parser ParsedStatement2
+createTableParser = do
+    _ <- queryStatementParser "create"
+    _ <- whitespaceParser
+    _ <- queryStatementParser "table"
+    _ <- whitespaceParser
+    table <- columnNameParser
+    _ <- whitespaceParser
+    _ <- char '('
+    _ <- optional whitespaceParser
+    columnsAndTypes <- columnListParser
+    _ <- optional whitespaceParser
+    _ <- char ')'
+    _ <- optional whitespaceParser
+    pure $ CreateTable table columnsAndTypes
+
+columnListParser :: Parser [Column]
+columnListParser = seperate columnAndTypeParser (optional whitespaceParser >> char ',' *> optional whitespaceParser)
+
+columnAndTypeParser :: Parser Column
+columnAndTypeParser = do
+    columnName <- columnNameParser
+    _ <- whitespaceParser
+    columnType <- columnTypeParser 
+    pure (Column columnName columnType)
+
+columnTypeParser :: Parser ColumnType
+columnTypeParser = do
+    typeName <- columnNameParser
+    case typeName of
+        "int"    -> pure IntegerType
+        "varchar" -> pure StringType
+        "bool"   -> pure BoolType
+        _        -> pure BoolType

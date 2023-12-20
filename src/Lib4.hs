@@ -484,7 +484,7 @@ data ExecutionAlgebra next =
   | LoadFile TableName (Either ErrorMessage DeserializedContent -> next)
   | SaveFile  (TableName, DataFrame) (() -> next)
   | GetTime (UTCTime -> next)
-  | DropFile TableName (Maybe ErrorMessage -> next)
+  | DropFile TableName (Either ErrorMessage () -> next)
   -- feel free to add more constructors heres 
   deriving Functor
 
@@ -504,7 +504,7 @@ getTables = liftF $ GetTables id
 saveFile :: (TableName, DataFrame) -> Execution ()
 saveFile table = liftF $ SaveFile table id
 
-dropFile :: TableName -> Execution (Maybe ErrorMessage)
+dropFile :: TableName -> Execution (Either ErrorMessage ())
 dropFile table = liftF $ DropFile table id 
 
 --------------------------EXECUTE SQL REIKALIUKAI--------------------------------
@@ -587,7 +587,7 @@ executeSql sql = case parseStatement sql of
 
   Right (DropTable table) -> do
         _ <- dropFile table
-        return $ Right (DataFrame [] [])
+        return $ Left "The table was deleted"
 
   Right (CreateTable table columns) -> do
         content <- loadFile table

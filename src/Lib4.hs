@@ -93,8 +93,7 @@ import Data.Bool (Bool(True))
 import Control.Monad.Free (Free (..), liftF)
 import Control.Monad
 import Data.Time
-import Data.List (find, findIndex, elemIndex, nub, elem, intercalate)
-import Data.List (sortBy)
+import Data.List (find, findIndex, elemIndex, nub, elem, intercalate, sortBy)
 import Debug.Trace
 
 type ColumnName = String
@@ -654,7 +653,61 @@ executeSelectAll tables selectedDfs whereSelect order = case areTablesValid sele
           Left err -> Left err
         Nothing -> Right $ cartesianDataFrame selectedDfs
     False -> Left "Some of provided tables are not valid"
---CIA NEVEIKIA ORDER BY
+
+
+getColumnsRowsC :: [ColumnName] -> CartesianDataFrame -> ([CartesianColumn], [Row])
+getColumnsRowsC colList (CartesianDataFrame col row) = (getColumnListC (getTableNamesC col) colList (getColumnTypeC colList col) , getNewRowsC col row colList)
+
+getNewRowsC :: [CartesianColumn] -> [Row] -> [ColumnName] -> [Row]
+getNewRowsC _ [] _ = []
+getNewRowsC cols (x:xs) colNames = getNewRowC x cols colNames : getNewRowsC cols xs colNames
+
+getNewRowC :: [DF.Value] -> [CartesianColumn] -> [ColumnName] -> [DF.Value]
+getNewRowC _ _ [] = []
+getNewRowC row cols (x:xs) = getValueFromRowC row (findColumnIndexC x cols) 0 : getNewRowC row cols xs
+
+getValueFromRowC :: Row -> Int -> Int -> DF.Value
+getValueFromRowC (x:xs) index i
+  | index == i = x
+  | otherwise = getValueFromRowC xs index (i+1)
+
+getColumnTypeC :: [ColumnName] -> [CartesianColumn] -> [ColumnType]
+getColumnTypeC [] _ = []
+getColumnTypeC (x:xs) col = columnTypeC col 0 (findColumnIndexC x col) : getColumnTypeC xs col
+
+columnTypeC :: [CartesianColumn] -> Int -> Int -> ColumnType
+columnTypeC (x:xs) i colIndex
+  | i == colIndex = getTypeC x
+  | otherwise = columnTypeC xs (i+1) colIndex
+
+getTypeC :: CartesianColumn -> ColumnType
+getTypeC (CartesianColumn (_, Column _ colType)) = colType
+
+
+getColumnListC :: [TableName] -> [ColumnName] -> [ColumnType] -> [CartesianColumn]
+getColumnListC [] [] [] = []
+getColumnListC _ [] _ = []
+getColumnListC [] _ _ = []
+getColumnListC _ _ [] = []
+getColumnListC (z:zs) (x:xs) (y:ys) = CartesianColumn (z, Column x y) : getColumnListC zs xs ys
+
+findColumnIndexC :: ColumnName -> [CartesianColumn] -> Int
+findColumnIndexC columnName columns = columnIndexC columnName columns 0
+
+columnIndexC :: ColumnName -> [CartesianColumn] -> Int -> Int
+columnIndexC _ [] _ = -1
+columnIndexC columnName ((CartesianColumn (_, Column name _)):xs) index
+    | columnName /= name = (columnIndexC columnName xs (index + 1))
+    | otherwise = index
+
+getTableNamesC :: [CartesianColumn] -> [TableName]
+getTableNamesC [] = []
+getTableNamesC ((CartesianColumn (table, _)):xs) = [table] ++ getTableNamesC xs
+
+createCarDataFrame :: ([CartesianColumn], [Row]) -> CartesianDataFrame
+createCarDataFrame (columns, rows) = CartesianDataFrame columns rows
+
+--CIA VEIKIA ORDER BY:
 executeSelectWithAllSauces :: SpecialSelect2 -> TableArray -> [DataFrame] -> Maybe WhereSelect -> UTCTime -> Maybe OrderBy -> Either ErrorMessage DataFrame
 executeSelectWithAllSauces specialSelect tables selectedDfs whereSelect time order = case specialSelect of
   (SelectColumn2 specialColumns nowFunction) -> case doColumnsExistDFs specialColumns selectedDfs of
@@ -668,14 +721,14 @@ executeSelectWithAllSauces specialSelect tables selectedDfs whereSelect time ord
                   True -> case areRowsEmpty (deCartesianDataFrame $ filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions) of
                     False -> case nowFunction of
                       Just _ -> case order of 
-                        Just o -> case sortCartesianDataFrame (createCartesianDataFrame ([uncurry createSelectDataFrame 
-                                  $ getColumnsRows specialColumns (deCartesianDataFrame $ filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions)] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])) o of
+                        Just o -> case sortCartesianDataFrame (createCartesianDataFrame ([createNowDataFrame (uTCToString time)] ++ [uncurry createSelectDataFrame 
+                                  $ getColumnsRows specialColumns (deCartesianDataFrame $ filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions)]) (["Now"] ++ tables)) o of
                           Right cdf -> Right $ deCartesianDataFrame cdf
                           Left err -> Left err
-                        Nothing -> Right $ deCartesianDataFrame (createCartesianDataFrame ([uncurry createSelectDataFrame 
-                                  $ getColumnsRows specialColumns (deCartesianDataFrame $ filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions)] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]))
+                        Nothing -> Right $ deCartesianDataFrame (createCartesianDataFrame ([createNowDataFrame (uTCToString time)] ++ [uncurry createSelectDataFrame 
+                                  $ getColumnsRows specialColumns (deCartesianDataFrame $ filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions)] ) (["Now"] ++ tables))
                       Nothing -> case order of
-                        Just o -> case sortCartesianDataFrame (createCartesianDataFrame [(uncurry createSelectDataFrame $ getColumnsRows specialColumns (deCartesianDataFrame $ filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions))] tables) o of
+                        Just o -> case sortCartesianDataFrame (( createCarDataFrame ( getColumnsRowsC specialColumns (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions)) )) o of
                           Right cdf -> Right $ deCartesianDataFrame cdf
                           Left err -> Left err
                         Nothing -> Right $ uncurry createSelectDataFrame 
@@ -687,19 +740,19 @@ executeSelectWithAllSauces specialSelect tables selectedDfs whereSelect time ord
             True -> Left "Conditions are faulty"
           Nothing -> case nowFunction of
             Just _ -> case order of 
-              Just o -> case sortCartesianDataFrame (createCartesianDataFrame ([uncurry createSelectDataFrame $ getColumnsRows specialColumns (deCartesianDataFrame $ createCartesianDataFrame selectedDfs tables)] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])) o of
+              Just o -> case sortCartesianDataFrame (createCartesianDataFrame ([createNowDataFrame (uTCToString time)] ++ [uncurry createSelectDataFrame $ getColumnsRows specialColumns (deCartesianDataFrame $ createCartesianDataFrame selectedDfs tables)]) (["Now"] ++ tables)) o of
                 Right cdf -> Right $ deCartesianDataFrame cdf
                 Left err -> Left err
-              Nothing -> Right $ deCartesianDataFrame (createCartesianDataFrame ([uncurry createSelectDataFrame $ getColumnsRows specialColumns (deCartesianDataFrame $ createCartesianDataFrame selectedDfs tables)] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]))
+              Nothing -> Right $ deCartesianDataFrame (createCartesianDataFrame ([createNowDataFrame (uTCToString time)] ++ [uncurry createSelectDataFrame $ getColumnsRows specialColumns (deCartesianDataFrame $ createCartesianDataFrame selectedDfs tables)]) (["Now"] ++ tables))
             Nothing -> case order of
-              Just o -> case sortCartesianDataFrame (createCartesianDataFrame [(uncurry createSelectDataFrame $ getColumnsRows specialColumns (deCartesianDataFrame $ createCartesianDataFrame selectedDfs tables))] tables) o of
+              Just o -> case sortCartesianDataFrame (createCarDataFrame (getColumnsRowsC specialColumns (createCartesianDataFrame selectedDfs tables))) o of
                 Right cdf -> Right $ deCartesianDataFrame cdf
                 Left err -> Left err
               Nothing -> Right $ uncurry createSelectDataFrame $ getColumnsRows specialColumns (deCartesianDataFrame $ createCartesianDataFrame selectedDfs tables)
         False -> Left "Some of provided tables are not valid"
       False -> Left "Some of provided column names are ambiguous"
     False -> Left "Some of provided columns do not exist in provided tables"
---CIA NEVEIKIA ORDER BY
+--CIA VEIKIA ORDER BY
   (SelectedColumnsTables specialColumns nowFunction) -> case doColumnsExistProvidedDfs tables selectedDfs specialColumns of
     True -> case areTablesValid selectedDfs of
       True -> case whereSelect of
@@ -709,14 +762,15 @@ executeSelectWithAllSauces specialSelect tables selectedDfs whereSelect time ord
               True -> case areRowsEmpty (deCartesianDataFrame $ filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions) of
                 False -> case nowFunction of
                   Just _ -> case order of
-                    Just o -> case sortCartesianDataFrame (createCartesianDataFrame ([uncurry createSelectDataFrame 
-                              $ (deCartesianColumns $ fst $ getColumnsTablesList specialColumns (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions), snd $ getColumnsTablesList specialColumns (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions))] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])) o of
+                    Just o -> case sortCartesianDataFrame (createCartesianDataFrame( [createNowDataFrame (uTCToString time)] ++ [uncurry createSelectDataFrame 
+                              $ (deCartesianColumns $ fst $ getColumnsTablesList specialColumns (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions), snd $ getColumnsTablesList specialColumns (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions))]) (["Now"] ++ tables)) o of
                       Right cdf -> Right $ deCartesianDataFrame cdf
-                    Nothing -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([uncurry createSelectDataFrame 
-                              $ (deCartesianColumns $ fst $ getColumnsTablesList specialColumns (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions), snd $ getColumnsTablesList specialColumns (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions))] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])
+                      Left err -> Left err
+                    Nothing -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createNowDataFrame (uTCToString time)] ++ [uncurry createSelectDataFrame 
+                              $ (deCartesianColumns $ fst $ getColumnsTablesList specialColumns (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions), snd $ getColumnsTablesList specialColumns (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions))]) (["Now"] ++ tables)
                   Nothing -> case order of
-                    Just o -> case sortCartesianDataFrame (createCartesianDataFrame [(uncurry createSelectDataFrame 
-                              $ (deCartesianColumns $ fst $ getColumnsTablesList specialColumns (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions), snd $ getColumnsTablesList specialColumns (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions)))] tables) o of
+                    Just o -> case sortCartesianDataFrame (createCarDataFrame 
+                              $  getColumnsTablesList specialColumns (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions)) o of
                       Right cdf -> Right $ deCartesianDataFrame cdf
                       Left err -> Left err
                     Nothing -> Right $ uncurry createSelectDataFrame 
@@ -734,15 +788,15 @@ executeSelectWithAllSauces specialSelect tables selectedDfs whereSelect time ord
             Nothing -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([uncurry createSelectDataFrame 
                               (deCartesianColumns $ fst $ getColumnsTablesList specialColumns (createCartesianDataFrame selectedDfs tables), snd $ getColumnsTablesList specialColumns (createCartesianDataFrame selectedDfs tables))] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])
           Nothing -> case order of
-            Just o -> case sortCartesianDataFrame (createCartesianDataFrame [uncurry createSelectDataFrame 
-                              (deCartesianColumns $ fst $ getColumnsTablesList specialColumns (createCartesianDataFrame selectedDfs tables), snd $ getColumnsTablesList specialColumns (createCartesianDataFrame selectedDfs tables))] tables) o of
+            Just o -> case sortCartesianDataFrame (createCarDataFrame 
+                              $ getColumnsTablesList specialColumns (createCartesianDataFrame selectedDfs tables)) o of
               Right cdf -> Right $ deCartesianDataFrame cdf
               Left err -> Left err 
             Nothing -> Right $ uncurry createSelectDataFrame 
                               (deCartesianColumns $ fst $ getColumnsTablesList specialColumns (createCartesianDataFrame selectedDfs tables), snd $ getColumnsTablesList specialColumns (createCartesianDataFrame selectedDfs tables))
       False -> Left "Some of provided table(s) are not valid"
     False -> Left "Some of provided columns do not exist in provided tables"
---CIA NEVEIKIA ORDER BY
+--CIA NEVEIKIA ORDER BY 
   (SelectAggregate2 aggregatesList nowFunction) -> case areTablesValid selectedDfs of
     True -> case doColumnsExistDFs (getColumnsFromAggregates aggregatesList) selectedDfs of
       True -> case checkForMatchingColumns (getAllColumnsCartesianDF (createCartesianDataFrame selectedDfs tables)) (getColumnsFromAggregates aggregatesList)of
@@ -759,32 +813,32 @@ executeSelectWithAllSauces specialSelect tables selectedDfs whereSelect time ord
                             Right (cols2, rows2) -> case null cols2 of
                               True -> Left "There are no results"
                               False -> case order of
-                                Just o -> case validateOrderBy o (createCartesianDataFrame ([createSelectDataFrame cols2 [rows2]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])) of
-                                  True -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createSelectDataFrame cols2 [rows2]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])
+                                Just o -> case validateOrderBy o (createCartesianDataFrame ([createNowDataFrame (uTCToString time)] ++ [createSelectDataFrame cols2 [rows2]]) (["Now"] ++ tables)) of
+                                  True -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createNowDataFrame (uTCToString time)] ++ [createSelectDataFrame cols2 [rows2]]) (["Now"] ++ tables)
                                   False -> Left "Provided order by columns are faulty"
-                                Nothing -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createSelectDataFrame cols2 [rows2]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])
+                                Nothing -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createNowDataFrame (uTCToString time)] ++ [createSelectDataFrame cols2 [rows2]]) (["Now"] ++ tables)
                             Left err -> Left err
                           False -> case processSelect2' (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions) aggregatesList of
                             Right (cols2, rows2) -> case null cols2 of
                               True -> case order of
-                                Just o -> case validateOrderBy o (createCartesianDataFrame ([createSelectDataFrame cols [rows]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])) of
-                                  True -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createSelectDataFrame cols [rows]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])
+                                Just o -> case validateOrderBy o (createCartesianDataFrame ([createNowDataFrame (uTCToString time)] ++ [createSelectDataFrame cols [rows]]) (["Now"] ++ tables)) of
+                                  True -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createNowDataFrame (uTCToString time)] ++ [createSelectDataFrame cols [rows]]) (["Now"] ++ tables)
                                   False -> Left "Provided order by columns are faulty"
-                                Nothing -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createSelectDataFrame cols [rows]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])
+                                Nothing -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createNowDataFrame (uTCToString time)] ++ [createSelectDataFrame cols [rows]]) (["Now"] ++ tables)
                               False -> case order of
-                                Just o -> case validateOrderBy o $ createCartesianDataFrame ([createSelectDataFrame (cols ++ cols2) [rows ++ rows2]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]) of
-                                  True -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createSelectDataFrame (cols ++ cols2) [rows ++ rows2]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]) 
+                                Just o -> case validateOrderBy o $ createCartesianDataFrame ([createNowDataFrame (uTCToString time)] ++ [createSelectDataFrame (cols ++ cols2) [rows ++ rows2]]) (["Now"] ++ tables) of
+                                  True -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createNowDataFrame (uTCToString time)] ++ [createSelectDataFrame (cols ++ cols2) [rows ++ rows2]]) (["Now"] ++ tables) 
                                   False -> Left "Provided order by columns are faulty"
-                                Nothing -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createSelectDataFrame (cols ++ cols2) [rows ++ rows2]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]) 
+                                Nothing -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createNowDataFrame (uTCToString time)] ++ [createSelectDataFrame (cols ++ cols2) [rows ++ rows2]]) (["Now"] ++ tables) 
                             Left err -> Left err
-                        Left err -> Left err
+                        Left err -> Left err------------------------------------------------------------------------------------------------------
                       Nothing -> case processSelect2 (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions) aggregatesList of
                         Right (cols, rows) -> case null cols of
                           True -> case processSelect2' (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions) aggregatesList of
                             Right (cols2, rows2) -> case null cols2 of
                               True -> Left "There are no results"
                               False -> case order of
-                                Just o -> case validateOrderBy o (createCartesianDataFrame [(createSelectDataFrame cols2 [rows2])] tables) of
+                                Just o -> case validationAggregatesOrderBy tables selectedDfs (getColumnsFromAggregates aggregatesList) o of
                                   True -> Right $ createSelectDataFrame cols2 [rows2]
                                   False -> Left "Provided order by columns are faulty" 
                                 Nothing -> Right $ createSelectDataFrame cols2 [rows2]
@@ -792,12 +846,12 @@ executeSelectWithAllSauces specialSelect tables selectedDfs whereSelect time ord
                           False -> case processSelect2' (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions) aggregatesList of
                             Right (cols2, rows2) -> case null cols2 of
                               True -> case order of
-                                Just o -> case validateOrderBy o (createCartesianDataFrame [(createSelectDataFrame cols [rows])] tables) of
+                                Just o -> case validationAggregatesOrderBy tables selectedDfs (getColumnsFromAggregates aggregatesList) o of
                                   True -> Right $ createSelectDataFrame cols [rows]
                                   False -> Left "Provided order by columns are faulty" 
                                 Nothing -> Right $ createSelectDataFrame cols [rows]
                               False -> case order of
-                                Just o -> case validateOrderBy o (createCartesianDataFrame [(createSelectDataFrame (cols ++ cols2) [rows ++ rows2])] tables) of
+                                Just o -> case validationAggregatesOrderBy tables selectedDfs (getColumnsFromAggregates aggregatesList) o of
                                   True -> Right $ createSelectDataFrame (cols ++ cols2) [rows ++ rows2]
                                   False -> Left "Provided order by columns are faulty"
                                 Nothing -> Right $ createSelectDataFrame (cols ++ cols2) [rows ++ rows2]
@@ -814,23 +868,23 @@ executeSelectWithAllSauces specialSelect tables selectedDfs whereSelect time ord
                     Right (cols2, rows2) -> case null cols2 of
                       True -> Left "There are no results"
                       False -> case order of
-                        Just o -> case validateOrderBy o (createCartesianDataFrame ([createSelectDataFrame cols2 [rows2]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]) ) of
-                          True -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createSelectDataFrame cols2 [rows2]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]) 
+                        Just o -> case validationAggregatesOrderBy tables selectedDfs (getColumnsFromAggregates aggregatesList) o of
+                          True -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createNowDataFrame (uTCToString time)] ++ [createSelectDataFrame cols2 [rows2]]) (["Now"] ++ tables) 
                           False -> Left "Provided order by columns are faulty" 
-                        Nothing -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createSelectDataFrame cols2 [rows2]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]) 
+                        Nothing -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createNowDataFrame (uTCToString time)] ++ [createSelectDataFrame cols2 [rows2]]) (["Now"] ++ tables) 
                     Left err -> Left err
                   False -> case processSelect2' (createCartesianDataFrame selectedDfs tables) aggregatesList of
                     Right (cols2, rows2) -> case null cols2 of
                       True -> case order of
-                        Just o -> case validateOrderBy o (createCartesianDataFrame ([createSelectDataFrame cols [rows]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]) ) of
-                          True -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createSelectDataFrame cols [rows]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"])
+                        Just o -> case validationAggregatesOrderBy tables selectedDfs (getColumnsFromAggregates aggregatesList) o of
+                          True -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createNowDataFrame (uTCToString time)] ++ [createSelectDataFrame cols [rows]]) (["Now"] ++ tables)
                           False ->  Left "Provided order by columns are faulty" 
-                        Nothing -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createSelectDataFrame cols [rows]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]) 
+                        Nothing -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createNowDataFrame (uTCToString time)] ++ [createSelectDataFrame cols [rows]]) (["Now"] ++ tables) 
                       False -> case order of
-                        Just o -> case validateOrderBy o (createCartesianDataFrame ([createSelectDataFrame (cols ++ cols2) [rows ++ rows2]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]) ) of
-                          True -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createSelectDataFrame (cols ++ cols2) [rows ++ rows2]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]) 
+                        Just o -> case validationAggregatesOrderBy tables selectedDfs (getColumnsFromAggregates aggregatesList) o of
+                          True -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createNowDataFrame (uTCToString time)] ++ [createSelectDataFrame (cols ++ cols2) [rows ++ rows2]]) (["Now"] ++ tables) 
                           False -> Left "Provided order by columns are faulty" 
-                        Nothing -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createSelectDataFrame (cols ++ cols2) [rows ++ rows2]] ++ [createNowDataFrame (uTCToString time)]) (tables ++ ["Now"]) 
+                        Nothing -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createNowDataFrame (uTCToString time)] ++ [createSelectDataFrame (cols ++ cols2) [rows ++ rows2]]) (["Now"] ++ tables) 
                     Left err -> Left err
                 Left err -> Left err
               Nothing -> case processSelect2 (createCartesianDataFrame selectedDfs tables) aggregatesList of
@@ -839,7 +893,7 @@ executeSelectWithAllSauces specialSelect tables selectedDfs whereSelect time ord
                     Right (cols2, rows2) -> case null cols2 of
                       True -> Left "There are no results"
                       False -> case order of
-                        Just o -> case validateOrderBy o (createCartesianDataFrame [(createSelectDataFrame cols2 [rows2])] tables) of
+                        Just o -> case validationAggregatesOrderBy tables selectedDfs (getColumnsFromAggregates aggregatesList) o of
                           True -> Right $ createSelectDataFrame cols2 [rows2]
                           False -> Left "Provided order by columns are faulty" 
                         Nothing -> Right $ createSelectDataFrame cols2 [rows2]
@@ -847,12 +901,12 @@ executeSelectWithAllSauces specialSelect tables selectedDfs whereSelect time ord
                   False -> case processSelect2' (createCartesianDataFrame selectedDfs tables) aggregatesList of
                     Right (cols2, rows2) -> case null cols2 of
                       True -> case order of
-                        Just o -> case validateOrderBy o (createCartesianDataFrame [(createSelectDataFrame cols [rows])] tables) of
+                        Just o -> case validationAggregatesOrderBy tables selectedDfs (getColumnsFromAggregates aggregatesList) o of
                           True -> Right $ createSelectDataFrame cols [rows]
                           False ->  Left "Provided order by columns are faulty" 
                         Nothing -> Right $ createSelectDataFrame cols [rows]
                       False -> case order of
-                        Just o -> case validateOrderBy o (createCartesianDataFrame [(createSelectDataFrame (cols ++ cols2) [rows ++ rows2])] tables) of
+                        Just o -> case validationAggregatesOrderBy tables selectedDfs (getColumnsFromAggregates aggregatesList) o of
                           True -> Right $ createSelectDataFrame (cols ++ cols2) [rows ++ rows2]
                           False ->  Left "Provided order by columns are faulty" 
                         Nothing -> Right $ createSelectDataFrame (cols ++ cols2) [rows ++ rows2]
@@ -863,7 +917,12 @@ executeSelectWithAllSauces specialSelect tables selectedDfs whereSelect time ord
       False -> Left "Some of provided columns in aggregate functions do not exist in provided tables" 
     False -> Left "Some of provided table(s) are not valid"
 
---validateOrderBy :: [(OrderByValue, AscDesc)] -> CartesianDataFrame -> Bool
+validationAggregatesOrderBy :: TableArray -> [DataFrame] -> [ColumnName] -> [(OrderByValue, AscDesc)] -> Bool
+validationAggregatesOrderBy _ _ _ [] = True
+validationAggregatesOrderBy tables dfs names ((order, _):xs) = case order of
+  ColumnNumber number -> if fromInteger number > length names || number < 1 then False else validationAggregatesOrderBy tables dfs names xs
+  ColumnName name -> if (elem name names) then validationAggregatesOrderBy tables dfs names xs else False
+  ColumnTable (table, name) -> if doColumnsExistProvidedDfs tables dfs [(table, name)] == True then validationAggregatesOrderBy tables dfs names xs else False
 ---------------------------------------some delete stuff starts--------------------------
 
 deleteExecution :: DataFrame -> Maybe [Condition] -> Either ErrorMessage DataFrame
@@ -1224,7 +1283,7 @@ ac (CartesianColumn (table, Column name _)) = table
 getValuesForSort :: CartesianDataFrame -> (OrderByValue, AscDesc) -> Either ErrorMessage (Int, AscDesc)
 getValuesForSort (cdf@(CartesianDataFrame cols _)) (order, ascdesc) = case order of
   ColumnNumber _ -> Right ((getColumnNumberFromOrderBy (order, ascdesc))-1, ascdesc)
-  ColumnName _ -> Right ((findColumnIndex (getColumnNameFromOrderBy (order, ascdesc)) (deCartesianColumns (toCartesianColumns cdf)))-1, ascdesc)
+  ColumnName _ -> Right ((findColumnIndex (getColumnNameFromOrderBy (order, ascdesc)) (deCartesianColumns (toCartesianColumns cdf))), ascdesc)
   ColumnTable (table, name) -> Right (findColumnTableIndex name table cols, ascdesc)--Right ((getColumnTableFromOrderBy (order, ascdesc) cdf), ascdesc)
 
 compareWhenEqual :: [(Int, AscDesc)] -> Row -> Row -> Ordering

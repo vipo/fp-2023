@@ -148,6 +148,10 @@ main = hspec $ do
       Lib3.parseStatement2 "update flags set flag = 'a' where flag = 'b';" `shouldBe` Right Lib3.Update {Lib3.table = "flags", Lib3.selectUpdate = [Condition (ColumnOperand "flag") IsEqualTo  (ConstantOperand (StringValue "a"))], Lib3.selectWhere = Just [Condition (ColumnOperand "flag") IsEqualTo  (ConstantOperand (StringValue "b"))]}
     it "Parses update statement with multiple conditions" $ do
       Lib3.parseStatement2 "update flags set flag = 'a' where flag = 'b' and id = 2;" `shouldBe` Right Lib3.Update {Lib3.table = "flags", Lib3.selectUpdate = [Condition (ColumnOperand "flag") IsEqualTo  (ConstantOperand (StringValue "a"))], Lib3.selectWhere = Just [Condition (ColumnOperand "flag") IsEqualTo  (ConstantOperand (StringValue "b")),Condition (ColumnOperand "id") IsEqualTo  (ConstantOperand (IntegerValue 2))]}
+     it "Parses drop table statement"
+      Lib3.ParsedStatement2 "drop table flags;" `shouldBe` Right Lib3.DropTable {Lib3.table = "flags"}
+    it "Parses create table statement"
+      Lib3.ParsedStatement2 "create table flags (column1 int, column2 varchar);" `shouldBe` Right Lib3.CreateTable {Lib3.table = "flags", Lib3.newColumns = ["column1","column2"]}
   describe "Lib3.deserializedContent" $ do
     it "parses valid tables" $ do
       Lib3.deserializedContent  "{\

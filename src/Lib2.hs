@@ -90,7 +90,8 @@ module Lib2
     getValueFromRow,
     ParsedStatement(..),
     parseStatement,
-    executeStatement
+    executeStatement,
+    Database
   )
 where
 

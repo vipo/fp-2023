@@ -99,13 +99,11 @@ import Debug.Trace
 type ColumnName = String
 type Error = String
 
--- type Parser4 a = EitherT Error (State String) a
 type Parser4 a = EitherT Error (State String) a
 
 data AscDesc = Asc String | Desc String
   deriving (Show, Eq)
 
---jei kliutu Integeris paseriui pakeisti i Int
 data OrderByValue = ColumnTable (TableName, ColumnName) | ColumnName ColumnName | ColumnNumber Integer
   deriving (Show, Eq)
 
@@ -430,9 +428,9 @@ throwE err = EitherT $ return $ Left err
 
 parseStatement :: String -> Either Error ParsedStatement3
 parseStatement input = do
-  (rest, statement) <- runParser p input
-  ( _, _) <- runParser stopParseAt rest
-  return statement
+  (remain, query) <- runParser p input
+  ( _, _) <- runParser stopParseAt remain
+  return query
   where
     p :: Parser4 ParsedStatement3
     p = dropTableParser
@@ -446,35 +444,6 @@ parseStatement input = do
         <|> selectNowParser
         <|> createTableParser
         <|> showTableParser
-
-fakeParser :: Parser4 ParsedStatement3
-fakeParser = do 
-  input <- lift get
-  throwE input
-
--- parseStatement :: String -> Either Error ParsedStatement3
--- parseStatement input = do
---   result <- runParser p input
---   case result of
---     Left err -> do
---       let _ = trace ("Parsing error: " ++ show err) ()
---       Left err  -- Return the error
---     Right (rest, statement) -> do
---       let _ = trace ("Rest: " ++ show rest ++ ", Statement: " ++ show statement) ()
---       _ <- runParser stopParseAt rest
---       Right statement
---   where
---     p :: Parser4 ParsedStatement3
---     p = showTableParser
---         <|> showTablesParser
---         <|> selectStatementParser
---         <|> selectAllParser
---         <|> insertParser
---         <|> updateParser
---         <|> deleteParser
---         <|> selectNowParser
---         <|> createTableParser
---         <|> dropTableParser
 
 --------------------------EXECUTION ALGEBRYZAS-----------------------------------
 
@@ -628,7 +597,7 @@ executeShowTable df table = createColumnsDataFrame (columnsToList df) table
 
 executeShowTables :: TableArray -> DataFrame
 executeShowTables tables = createTablesDataFrame tables
---CIA VEIKIA ORDER BY
+
 executeSelectAll :: TableArray -> [DataFrame] -> Maybe WhereSelect -> Maybe OrderBy -> Either ErrorMessage DataFrame
 executeSelectAll tables selectedDfs whereSelect order = case areTablesValid selectedDfs of
     True -> case whereSelect of
@@ -654,60 +623,6 @@ executeSelectAll tables selectedDfs whereSelect order = case areTablesValid sele
         Nothing -> Right $ cartesianDataFrame selectedDfs
     False -> Left "Some of provided tables are not valid"
 
-
-getColumnsRowsC :: [ColumnName] -> CartesianDataFrame -> ([CartesianColumn], [Row])
-getColumnsRowsC colList (CartesianDataFrame col row) = (getColumnListC (getTableNamesC col) colList (getColumnTypeC colList col) , getNewRowsC col row colList)
-
-getNewRowsC :: [CartesianColumn] -> [Row] -> [ColumnName] -> [Row]
-getNewRowsC _ [] _ = []
-getNewRowsC cols (x:xs) colNames = getNewRowC x cols colNames : getNewRowsC cols xs colNames
-
-getNewRowC :: [DF.Value] -> [CartesianColumn] -> [ColumnName] -> [DF.Value]
-getNewRowC _ _ [] = []
-getNewRowC row cols (x:xs) = getValueFromRowC row (findColumnIndexC x cols) 0 : getNewRowC row cols xs
-
-getValueFromRowC :: Row -> Int -> Int -> DF.Value
-getValueFromRowC (x:xs) index i
-  | index == i = x
-  | otherwise = getValueFromRowC xs index (i+1)
-
-getColumnTypeC :: [ColumnName] -> [CartesianColumn] -> [ColumnType]
-getColumnTypeC [] _ = []
-getColumnTypeC (x:xs) col = columnTypeC col 0 (findColumnIndexC x col) : getColumnTypeC xs col
-
-columnTypeC :: [CartesianColumn] -> Int -> Int -> ColumnType
-columnTypeC (x:xs) i colIndex
-  | i == colIndex = getTypeC x
-  | otherwise = columnTypeC xs (i+1) colIndex
-
-getTypeC :: CartesianColumn -> ColumnType
-getTypeC (CartesianColumn (_, Column _ colType)) = colType
-
-
-getColumnListC :: [TableName] -> [ColumnName] -> [ColumnType] -> [CartesianColumn]
-getColumnListC [] [] [] = []
-getColumnListC _ [] _ = []
-getColumnListC [] _ _ = []
-getColumnListC _ _ [] = []
-getColumnListC (z:zs) (x:xs) (y:ys) = CartesianColumn (z, Column x y) : getColumnListC zs xs ys
-
-findColumnIndexC :: ColumnName -> [CartesianColumn] -> Int
-findColumnIndexC columnName columns = columnIndexC columnName columns 0
-
-columnIndexC :: ColumnName -> [CartesianColumn] -> Int -> Int
-columnIndexC _ [] _ = -1
-columnIndexC columnName ((CartesianColumn (_, Column name _)):xs) index
-    | columnName /= name = (columnIndexC columnName xs (index + 1))
-    | otherwise = index
-
-getTableNamesC :: [CartesianColumn] -> [TableName]
-getTableNamesC [] = []
-getTableNamesC ((CartesianColumn (table, _)):xs) = [table] ++ getTableNamesC xs
-
-createCarDataFrame :: ([CartesianColumn], [Row]) -> CartesianDataFrame
-createCarDataFrame (columns, rows) = CartesianDataFrame columns rows
-
---CIA VEIKIA ORDER BY:
 executeSelectWithAllSauces :: SpecialSelect2 -> TableArray -> [DataFrame] -> Maybe WhereSelect -> UTCTime -> Maybe OrderBy -> Either ErrorMessage DataFrame
 executeSelectWithAllSauces specialSelect tables selectedDfs whereSelect time order = case specialSelect of
   (SelectColumn2 specialColumns nowFunction) -> case doColumnsExistDFs specialColumns selectedDfs of
@@ -752,7 +667,7 @@ executeSelectWithAllSauces specialSelect tables selectedDfs whereSelect time ord
         False -> Left "Some of provided tables are not valid"
       False -> Left "Some of provided column names are ambiguous"
     False -> Left "Some of provided columns do not exist in provided tables"
---CIA VEIKIA ORDER BY
+
   (SelectedColumnsTables specialColumns nowFunction) -> case doColumnsExistProvidedDfs tables selectedDfs specialColumns of
     True -> case areTablesValid selectedDfs of
       True -> case whereSelect of
@@ -796,7 +711,7 @@ executeSelectWithAllSauces specialSelect tables selectedDfs whereSelect time ord
                               (deCartesianColumns $ fst $ getColumnsTablesList specialColumns (createCartesianDataFrame selectedDfs tables), snd $ getColumnsTablesList specialColumns (createCartesianDataFrame selectedDfs tables))
       False -> Left "Some of provided table(s) are not valid"
     False -> Left "Some of provided columns do not exist in provided tables"
---CIA NEVEIKIA ORDER BY 
+
   (SelectAggregate2 aggregatesList nowFunction) -> case areTablesValid selectedDfs of
     True -> case doColumnsExistDFs (getColumnsFromAggregates aggregatesList) selectedDfs of
       True -> case checkForMatchingColumns (getAllColumnsCartesianDF (createCartesianDataFrame selectedDfs tables)) (getColumnsFromAggregates aggregatesList)of
@@ -916,6 +831,60 @@ executeSelectWithAllSauces specialSelect tables selectedDfs whereSelect time ord
         False -> Left "Some of provided columns in aggregate functions are ambiguous" 
       False -> Left "Some of provided columns in aggregate functions do not exist in provided tables" 
     False -> Left "Some of provided table(s) are not valid"
+
+-------------------------------------------NEW STUFF FOR EXECUTION-------------------------------------------------
+
+getColumnsRowsC :: [ColumnName] -> CartesianDataFrame -> ([CartesianColumn], [Row])
+getColumnsRowsC colList (CartesianDataFrame col row) = (getColumnListC (getTableNamesC col) colList (getColumnTypeC colList col) , getNewRowsC col row colList)
+
+getNewRowsC :: [CartesianColumn] -> [Row] -> [ColumnName] -> [Row]
+getNewRowsC _ [] _ = []
+getNewRowsC cols (x:xs) colNames = getNewRowC x cols colNames : getNewRowsC cols xs colNames
+
+getNewRowC :: [DF.Value] -> [CartesianColumn] -> [ColumnName] -> [DF.Value]
+getNewRowC _ _ [] = []
+getNewRowC row cols (x:xs) = getValueFromRowC row (findColumnIndexC x cols) 0 : getNewRowC row cols xs
+
+getValueFromRowC :: Row -> Int -> Int -> DF.Value
+getValueFromRowC (x:xs) index i
+  | index == i = x
+  | otherwise = getValueFromRowC xs index (i+1)
+
+getColumnTypeC :: [ColumnName] -> [CartesianColumn] -> [ColumnType]
+getColumnTypeC [] _ = []
+getColumnTypeC (x:xs) col = columnTypeC col 0 (findColumnIndexC x col) : getColumnTypeC xs col
+
+columnTypeC :: [CartesianColumn] -> Int -> Int -> ColumnType
+columnTypeC (x:xs) i colIndex
+  | i == colIndex = getTypeC x
+  | otherwise = columnTypeC xs (i+1) colIndex
+
+getTypeC :: CartesianColumn -> ColumnType
+getTypeC (CartesianColumn (_, Column _ colType)) = colType
+
+
+getColumnListC :: [TableName] -> [ColumnName] -> [ColumnType] -> [CartesianColumn]
+getColumnListC [] [] [] = []
+getColumnListC _ [] _ = []
+getColumnListC [] _ _ = []
+getColumnListC _ _ [] = []
+getColumnListC (z:zs) (x:xs) (y:ys) = CartesianColumn (z, Column x y) : getColumnListC zs xs ys
+
+findColumnIndexC :: ColumnName -> [CartesianColumn] -> Int
+findColumnIndexC columnName columns = columnIndexC columnName columns 0
+
+columnIndexC :: ColumnName -> [CartesianColumn] -> Int -> Int
+columnIndexC _ [] _ = -1
+columnIndexC columnName ((CartesianColumn (_, Column name _)):xs) index
+    | columnName /= name = (columnIndexC columnName xs (index + 1))
+    | otherwise = index
+
+getTableNamesC :: [CartesianColumn] -> [TableName]
+getTableNamesC [] = []
+getTableNamesC ((CartesianColumn (table, _)):xs) = [table] ++ getTableNamesC xs
+
+createCarDataFrame :: ([CartesianColumn], [Row]) -> CartesianDataFrame
+createCarDataFrame (columns, rows) = CartesianDataFrame columns rows
 
 validationAggregatesOrderBy :: TableArray -> [DataFrame] -> [ColumnName] -> [(OrderByValue, AscDesc)] -> Bool
 validationAggregatesOrderBy _ _ _ [] = True
@@ -1186,31 +1155,6 @@ ascDescParser = tryParseDesc <|> tryParseAsc <|> tryParseSymbol
       _ <- optional whitespaceParser
       return $ Asc "asc"
 
----------------------------------------- I ORDER YOU BY THE POWER OF ----------------------------------------
-
--- orderBy :: DataFrame -> OrderBy -> DataFrame
--- orderBy df (x:xs) = "do later"
-
-
----------------------------------------- DA SORT IS REAL, AND BUBBLY -----------------------------------------
-
--- bubbleSort :: Ord a => [a] -> [a]
--- bubbleSort [] = []
--- bubbleSort [x] = [x]
--- bubbleSort (x:y:xs) = if x > y then y : bubbleSort (x:xs) else x : bubbleSort (y:xs)
-
--- isSorted :: Ord a => [a] -> Bool
--- isSorted [] = True
--- isSorted [x] = True
--- isSorted (x:y:xs) = if x > y then False else isSorted (y:xs)
-
--- bubbleSortMain :: Ord a => [a] -> [a]
--- bubbleSortMain list = if isSorted list then list else bubbleSortMain (bubbleSort list)
-
-
-
--- sortRows :: OrderBy -> DataFrame -> DataFrame
-
 validateOrderBy :: [(OrderByValue, AscDesc)] -> CartesianDataFrame -> Bool
 validateOrderBy [] _ = True
 validateOrderBy ((order, _):xs) (CartesianDataFrame cols rows) = case order of
@@ -1230,7 +1174,6 @@ toAscDescList ((orderByValue, ascdesc):xs)
   | xs /= [] = [ascdesc] ++ toAscDescList xs
   | otherwise = [ascdesc] 
 
--- int is getColumnNumberFromOrderBy
 validateColumnNumber :: Int ->  [CartesianColumn] -> Bool
 validateColumnNumber int cols = 
   case int > (length cols) - 1 || int < 0 of
@@ -1269,7 +1212,7 @@ countOfColumnTable ((CartesianColumn (table, Column name _)):xs) (ColumnTable (t
 
 toCartesianColumns :: CartesianDataFrame -> [CartesianColumn]
 toCartesianColumns (CartesianDataFrame cols rows) = cols
---------------------------------------------------------------
+--------------------------------------SORT------------------------------------
 
 sortCartesianDataFrame :: CartesianDataFrame -> OrderBy -> Either ErrorMessage CartesianDataFrame
 sortCartesianDataFrame (CartesianDataFrame cols rows) order = do
@@ -1277,61 +1220,23 @@ sortCartesianDataFrame (CartesianDataFrame cols rows) order = do
   let sortedRows = sortBy (compareWhenEqual sortByValues) rows
   return $ CartesianDataFrame cols sortedRows
 
-ac :: CartesianColumn -> TableName
-ac (CartesianColumn (table, Column name _)) = table
-
 getValuesForSort :: CartesianDataFrame -> (OrderByValue, AscDesc) -> Either ErrorMessage (Int, AscDesc)
 getValuesForSort (cdf@(CartesianDataFrame cols _)) (order, ascdesc) = case order of
   ColumnNumber _ -> Right ((getColumnNumberFromOrderBy (order, ascdesc))-1, ascdesc)
   ColumnName _ -> Right ((findColumnIndex (getColumnNameFromOrderBy (order, ascdesc)) (deCartesianColumns (toCartesianColumns cdf))), ascdesc)
-  ColumnTable (table, name) -> Right (findColumnTableIndex name table cols, ascdesc)--Right ((getColumnTableFromOrderBy (order, ascdesc) cdf), ascdesc)
+  ColumnTable (table, name) -> Right (findColumnTableIndex name table cols, ascdesc)
 
 compareWhenEqual :: [(Int, AscDesc)] -> Row -> Row -> Ordering
 compareWhenEqual [] _ _ = EQ
 compareWhenEqual ((i, ascdesc):iascdesc) row1 row2 =
-    let primaryOrder = compareValues ascdesc (row1 !! i) (row2 !! i)
-    in if primaryOrder == EQ then compareWhenEqual (adjustIndices iascdesc) row1 row2 else primaryOrder
+    let priority = compareValues ascdesc (row1 !! i) (row2 !! i)
+    in if priority == EQ then compareWhenEqual (adjustIndices iascdesc) row1 row2 else priority
   where
     adjustIndices = map (\(idx, desc) -> (if idx > i then idx - 1 else idx, desc))
 
 compareValues :: AscDesc -> DF.Value -> DF.Value -> Ordering
 compareValues (Asc "asc") v1 v2 = compare v1 v2
 compareValues (Desc "desc") v1 v2 = compare v2 v1
-
--- getIndexList :: OrderBy -> CartesianDataFrame -> [Int]
--- getIndexList [] _ = []
--- getIndexList (x:xs) df = case getIndexOrderBy (x:xs) df of
---   Right result -> result : getIndexList xs df
---   Left errMsg -> error errMsg  -- or handle the error appropriately
--- getIndexList :: OrderBy -> CartesianDataFrame -> [Int]
--- getIndexList [] _ = []
--- getIndexList (x:xs) df = case getIndexOrderBy (x:xs) df of
---   Right result -> result : getIndexList xs df
---   Left errMsg -> error errMsg  -- or handle the error appropriately
-
-
--- getIndexOrderBy :: OrderBy -> CartesianDataFrame -> Either ErrorMessage Int
--- getIndexOrderBy ((orderByValue, ascdesc):xs) df
---     | isColumnTable orderByValue = if validateColumnTable (toCartesianColumns df) orderByValue
---         then Right (getColumnTableFromOrderBy (orderByValue, ascdesc) df)
---         else Left "Non valid table.column name"
---     | isColumnName orderByValue = if validateColumnName (getColumnNameFromOrderBy (orderByValue, ascdesc)) (deCartesianColumns (toCartesianColumns df))
---         then Right (findColumnIndex (getColumnNameFromOrderBy (orderByValue, ascdesc)) (deCartesianColumns (toCartesianColumns df)))
---         else Left "Non valid column name" 
---     | otherwise = if validateColumnNumber (getColumnNumberFromOrderBy (orderByValue, ascdesc)) (toCartesianColumns df)
---         then Right (getColumnNumberFromOrderBy (orderByValue, ascdesc))
---         else Left "Non valid orderBy index"
--- getIndexOrderBy :: OrderBy -> CartesianDataFrame -> Either ErrorMessage Int
--- getIndexOrderBy ((orderByValue, ascdesc):xs) df
---     | isColumnTable orderByValue = if validateColumnTable (toCartesianColumns df) orderByValue
---         then Right (getColumnTableFromOrderBy (orderByValue, ascdesc) df)
---         else Left "Non valid table.column name"
---     | isColumnName orderByValue = if validateColumnName (getColumnNameFromOrderBy (orderByValue, ascdesc)) (deCartesianColumns (toCartesianColumns df))
---         then Right (findColumnIndex (getColumnNameFromOrderBy (orderByValue, ascdesc)) (deCartesianColumns (toCartesianColumns df)))
---         else Left "Non valid column name" 
---     | otherwise = if validateColumnNumber (getColumnNumberFromOrderBy (orderByValue, ascdesc)) (toCartesianColumns df)
---         then Right (getColumnNumberFromOrderBy (orderByValue, ascdesc))
---         else Left "Non valid orderBy index"
 
 --Helper functions to check the constructor of OrderByValue
 isColumnTable :: OrderByValue -> Bool
@@ -1348,231 +1253,8 @@ getColumnNameFromOrderBy (ColumnName name ,ascdesc) = name
 getColumnNumberFromOrderBy :: (OrderByValue, AscDesc) -> Int
 getColumnNumberFromOrderBy (ColumnNumber int ,ascdesc) = fromInteger int
 
-
---reiks patikrinimo ar egzistuoja toks (tablename, columnname)
 getColumnTableFromOrderBy :: (OrderByValue, AscDesc) -> CartesianDataFrame -> Int
 getColumnTableFromOrderBy (ColumnTable (tablename, columnname), _) (CartesianDataFrame cols rows) = findColumnTableIndex columnname tablename cols
-
--- Helper functions to check the constructor of OrderByValue
--- isColumnTable :: OrderByValue -> Bool
--- isColumnTable (ColumnTable _) = True
--- isColumnTable _ = False
-
--- isColumnName :: OrderByValue -> Bool
--- isColumnName (ColumnName _) = True
--- isColumnName _ = False
-
--- getColumnNameFromOrderBy :: (OrderByValue, AscDesc) -> String
--- getColumnNameFromOrderBy (ColumnName name ,ascdesc) = name
-
--- getColumnNumberFromOrderBy :: (OrderByValue, AscDesc) -> Int
--- getColumnNumberFromOrderBy (ColumnNumber int ,ascdesc) = fromInteger int
-
--- getColumnTableFromOrderBy :: (OrderByValue, AscDesc) -> CartesianDataFrame -> Int
--- getColumnTableFromOrderBy (ColumnTable (tablename, columnname), _) (CartesianDataFrame cols rows) = findColumnTableIndex columnname tablename cols
-
--- sortRows :: OrderBy -> CartesianDataFrame -> CartesianDataFrame
--- sortRows orderBy df@(CartesianDataFrame _ rows) = CartesianDataFrame (toCartesianColumns df) (sortOn (rowComparator orderBy) rows)
-
--- -- Function to compare rows based on OrderBy
--- rowComparator :: OrderBy -> CartesianDataFrame -> Row -> Row -> Ordering
--- rowComparator orderBy cdf row1 row2 = compareRows 0 orderBy row1 row2
-
--- compareRows :: Int -> CartesianDataFrame -> OrderBy -> Row -> Row -> Ordering
--- compareRows index cdf orderBy row1 row2 =
---   case compareValues (row1 !! index) (row2 !! index) of
---     EQ -> case isNextOrderBy index orderBy of
---       True -> compareRows (getNextOrderByInt index (getIndexList orderBy cdf)) cdf orderBy row1 row2
---       False -> EQ
---     result -> result
-
--- -- Function to check if a list of rows is sorted based on OrderBy
--- isRowsSorted :: OrderBy -> [Row] -> Bool
--- isRowsSorted orderBy rows = all (\(row1, row2) -> compareRows 0 orderBy row1 row2 /= GT) (zip rows (tail rows))
-
--- -- Function to get the next index in OrderBy
--- -- getNextOrderByInt :: Int -> OrderBy -> Int
--- -- getNextOrderByInt nowOrder orderBy =
--- --   case isNextOrderBy nowOrder orderBy of 
--- --     True -> case head (drop (nowOrder + 1) orderBy) of
--- --       (ColumnNumber int, _) -> fromInteger int
--- --       _ -> -1
--- --     False -> -1
-
-
--- -- gal bandyti naudoti int patikrinimuo kuris orderby vyksta dabar??
--- isNextOrderBy :: Int -> [Int] -> Bool
--- isNextOrderBy nowOrder ints = if (length ints) >= (nowOrder + 1)
---   then True
---   else False
-
--- getNextOrderByInt :: Int -> [Int] -> Int
--- getNextOrderByInt nowOrder ints = 
---   case isNextOrderBy nowOrder ints of 
---     True -> (ints !! (nowOrder + 1))
---     False -> -1
-
--- getNextOrderByAscDesc :: Int -> [Int] -> [AscDesc] -> AscDesc
--- getNextOrderByAscDesc nowOrder ints ascdescs =
---   case isNextOrderBy nowOrder ints of 
---     True -> (ascdescs !! (nowOrder + 1))
---     False -> Asc "asc"
-
--- -- Compare values at a specific index in rows --      lygu  ascdesc
--- -- compareRows :: Int -> AscDesc -> Row -> Row -> Either Bool Bool
--- -- compareRows index ascdesc row1 row2 = 
--- --   case ifEqual (row1 !! index) (row2 !! index) of
--- --     False -> if ascdesc == Asc "asc" 
--- --       then Right $ compareValuesAsc (row1 !! index) (row2 !! index)
--- --       else Right $ compareValuesDesc (row1 !! index) (row2 !! index)
--- --     True -> Left True
--- compareValues :: Value -> Value -> Ordering
--- compareValues (IntegerValue a) (IntegerValue b) = compare a b
--- compareValues (StringValue a) (StringValue b) = compare a b
--- compareValues (BoolValue a) (BoolValue b) = compare a b
--- compareValues NullValue NullValue = EQ
--- compareValues NullValue _ = LT
--- compareValues _ NullValue = GT
--- compareValues _ _ = error "Unsupported comparison"
-
--- ifEqual :: DF.Value -> DF.Value -> Bool
--- ifEqual (IntegerValue a) (IntegerValue b) = a == b
--- ifEqual (StringValue a) (StringValue b) = a == b
--- ifEqual (BoolValue a) (BoolValue b) = a == b
--- ifEqual NullValue NullValue = True
--- ifEqual NullValue _ = False
--- ifEqual _ NullValue = False
--- ifEqual _ _ = error "Unsupported comparison"
-
--- -- Compare values of two Value types
--- compareValuesAsc :: DF.Value -> DF.Value -> Bool
--- compareValuesAsc (IntegerValue a) (IntegerValue b) = a > b
--- compareValuesAsc (StringValue a) (StringValue b) = a > b
--- compareValuesAsc (BoolValue a) (BoolValue b) = a > b
--- compareValuesAsc NullValue _ = False
--- compareValuesAsc _ NullValue = True
--- compareValuesAsc _ _ = error "Unsupported comparison"
-
--- compareValuesDesc :: DF.Value -> DF.Value -> Bool
--- compareValuesDesc (IntegerValue a) (IntegerValue b) = a < b
--- compareValuesDesc (StringValue a) (StringValue b) = a < b
--- compareValuesDesc (BoolValue a) (BoolValue b) = a < b
--- compareValuesDesc NullValue _ = True
--- compareValuesDesc _ NullValue = False
--- compareValuesDesc _ _ = error "Unsupported comparison"
-
--- -- Bubble sort for rows based on values at a specific index
--- bubbleSortRows :: Int -> [Int] -> [AscDesc] -> [Row] -> [Row]
--- bubbleSortRows _ _ _ [] = []
--- bubbleSortRows _ _ _ [x] = [x]
--- bubbleSortRows index indexes ascdesc (x:y:xs) =
---   case compareRows index (ascdesc !! index) x y of
---     Right b -> if b
---       then y : bubbleSortRows index indexes [(ascdesc !! index)] (x : xs)
---       else x : bubbleSortRows index indexes [(ascdesc !! index)] (y : xs)
---     Left True -> abc index indexes ascdesc ([x] ++ [y])
-
--- abc :: Int -> [Int] -> [AscDesc] -> [Row] -> [Row]
--- abc i indexes ascdesc rows = case isNextOrderBy i indexes of
---   True -> bubbleSortRows (getNextOrderByInt i indexes) indexes ascdesc rows
---   False -> rows
-
--- -- Check if a list of rows is sorted based on values at a specific index
--- isRowsSorted :: Int -> AscDesc -> [Row] -> Bool
--- isRowsSorted _ _ [] = True
--- isRowsSorted _ _ [x] = True
--- isRowsSorted index ascdesc (x:y:xs) =
---   case compareRows index ascdesc x y of
---     Right b -> case b of
---       True -> False
---       False -> isRowsSorted index ascdesc (y:xs)
---     Left _ -> case isNextOrderBy index indexes of
-
-
--- -- Bubble sort for rows with a main function
--- bubbleSortRowsMain :: Int -> [Int] -> [AscDesc] -> [Row] -> [Row]
--- bubbleSortRowsMain index indexes ascdesc list =
---   if isRowsSorted (indexes !! index) (ascdesc !! index) list
---     then list
---     else bubbleSortRowsMain index indexes ascdesc (bubbleSortRows index indexes ascdesc list)
-
------------------petras---------------------
--- -- Compare values based on AscDesc
--- compareValuesAscDesc :: AscDesc -> Row -> Row -> Ordering
--- compareValuesAscDesc (Asc "asc") row1 row2 = compare row1 row2
--- compareValuesAscDesc (Desc "desc") row1 row2 = compare row2 row1
--- compareValuesAscDesc _ _ _ = error "Unsupported comparison"
-
--- -- Bubble sort for rows based on values at a specific index
--- bubbleSortRows :: Int -> AscDesc -> [Row] -> [Row]
--- bubbleSortRows _ _ [] = []
--- bubbleSortRows _ _ [x] = [x]
--- bubbleSortRows index ascdesc (x:y:xs) =
---   case compareRows index ascdesc x y of
---     GT -> y : bubbleSortRows index ascdesc (x : xs)
---     _  -> x : bubbleSortRows index ascdesc (y : xs)
-
--- -- Bubble sort for rows with a main function
--- bubbleSortRowsMain :: Int -> AscDesc -> [Row] -> [Row]
--- bubbleSortRowsMain index ascdesc list =
---   if isRowsSorted index ascdesc list
---     then list
---     else bubbleSortRowsMain index ascdesc (bubbleSortRows index ascdesc list)
-
--- isNextOrderBy :: Int -> [a] -> Bool
--- isNextOrderBy nowOrder list = length list > nowOrder
-
--- -- Get the value at the next order by
--- getNextOrderBy :: Int -> [a] -> a
--- getNextOrderBy nowOrder list = if isNextOrderBy nowOrder list
---   then list !! nowOrder
---   else error "Index out of bounds"
-
--- -- Compare values at a specific index in rows
--- -- compareRows :: Int -> AscDesc -> Row -> Row -> Ordering
--- -- compareRows index ascdesc row1 row2 =
--- --   case compare (row1 !! index) (row2 !! index) of
--- --     EQ -> compareValuesAscDesc ascdesc row1 row2
--- --     result -> result
-
--- -- isRowsSorted :: Int -> AscDesc -> [Row] -> Bool
--- -- isRowsSorted _ _ [] = True
--- -- isRowsSorted index ascdesc (x:y:xs) =
--- --   case compareRows index ascdesc x y of
--- --     GT -> False
--- --     _  -> isRowsSorted index ascdesc (y:xs)
-
--- -- Updated compareValuesAscDesc to handle descending order correctly
--- compareValuesAscDesc :: AscDesc -> Row -> Row -> Ordering
--- compareValuesAscDesc (Asc "asc") row1 row2 = compare row1 row2
--- compareValuesAscDesc (Desc "desc") row1 row2 = compare row2 row1
--- compareValuesAscDesc _ _ _ = error "Unsupported comparison"
-
--- -- Updated compareRows to handle descending order correctly
--- compareRows :: Int -> AscDesc -> Row -> Row -> Ordering
--- compareRows index ascdesc row1 row2 =
---   case compare (row1 !! index) (row2 !! index) of
---     EQ -> compareValuesAscDesc ascdesc row1 row2
---     result -> result
-
-
--- sortDataFrame :: OrderBy -> CartesianDataFrame -> CartesianDataFrame
--- sortDataFrame orderBy (CartesianDataFrame cols rows) =
---   let sortedRows = sortOn (\row -> map (\(orderByValue, _) -> row !! getSortIndex orderByValue) orderBy) rows
---   in CartesianDataFrame cols sortedRows
-
--- getSortIndex :: OrderByValue -> Int
--- getSortIndex (ColumnName _) = 0
--- getSortIndex (ColumnTable _) = 0
--- getSortIndex (ColumnNumber i) = i
---bubbleSort :: OrderBy -> CartesianDataFrame -> CartesianDataFrame
---bubbleSort orderBy cdf@(CartesianDataFrame cols rows) = do
---  let indexes = getIndexList orderBy cdf
---  let ascDesc = toAscDescList orderBy
-
---bubbleSortMainMain :: [Int] -> [AscDesc] -> [Row] -> [Row]
---bubbleSortMainMain [] [] _ = []
---bubbleSortMainMain (x:xs) (y:ys) rows = bubbleSortRowsMain x y rows |> bubbleSortMainMain xs ys rows
 
 -----------------------------------------------------------------
 
@@ -1741,13 +1423,6 @@ columnTypeParser "varchar" = Right StringType
 columnTypeParser "bool" = Right BoolType
 columnTypeParser other = Left $ "There is no such type as: " ++ other
 
--- --sitas gali ir neveikti:
--- parseSatisfy :: (Char -> Bool) -> Parser4 Char
--- parseSatisfy pr = EitherT $ state $ \input ->
---   case input of
---     (x:xs) -> if pr x then (Right x, xs) else (Left ("Unexpected character: " ++ [x]), input)
---     [] -> (Left "Empty input", input)
-
 
 parseSatisfy :: (Char -> Bool) -> Parser4 Char
 parseSatisfy predicate = EitherT $ state $ \inp ->
@@ -1785,41 +1460,21 @@ seperate p sep = do
     xs <- many (sep *> p)
     return (x:xs)
 
--- columnNameParser :: Parser4 ColumnName
--- columnNameParser = do
---   input <- lift get
---   case takeWhile (\x -> isAlphaNum x || x == '_') input of
---     [] -> throwE "Empty input"
---     xs -> do
---       lift $ put $ drop (length xs) input
---       return xs
-
 columnNameParser :: Parser4 ColumnName
 columnNameParser = do
     inp <- lift get  
     let word = takeWhile (\x -> isAlphaNum x || x == '_') inp
     case word of
-        [] -> throwE "Empty input3"
+        [] -> throwE "Empty input"
         xs -> do
             lift $ put $ drop (length xs) inp 
             return xs
-
-
--- char :: Char -> Parser4 Char
--- char c = do
---   input <- lift get
---   case input of
---     [] -> throwE "Empty input"
---     (x:xs) -> if x == c then do 
---                             lift $ put xs 
---                             return c
---                         else throwE ("Expected " ++ [c])
 
 char :: Char -> Parser4 Char
 char a = do
     inp <- lift get
     case inp of
-        [] -> throwE "Empty input4"
+        [] -> throwE "Empty input"
         (x:xs) -> if a == x then do
                                 lift $ put xs
                                 return a
@@ -1829,7 +1484,7 @@ numberParser :: Parser4 Integer
 numberParser = do
   input <- lift get
   case takeWhile (\x -> isDigit x) input of
-    [] -> throwE "Empty input5"
+    [] -> throwE "Empty input"
     xs -> do
       lift $ put $ drop (length xs) input
       return $ stringToInt xs

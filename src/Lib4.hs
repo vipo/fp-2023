@@ -8,10 +8,9 @@
 
 module Lib4
   (
-    ParsedStatement3, 
+    ParsedStatement3(..), 
     parseStatement,
     SqlStatement(..), 
-    --SqlTableFromYAML, jei reiks - atkomentuoti
     fromStatement,
     toTable,
     toDataframe,
@@ -27,8 +26,18 @@ module Lib4
     Execution,
     ExecutionAlgebra(..),
     serializedContent,
-    executeSql
-  ) 
+    executeSql,
+    SpecialSelect2(..),
+    OrderByValue(..),
+    AscDesc(..),
+    Integer,
+    SpecialSelect(..),
+    NowFunction,
+    SelectedColumns(..),
+    toException,
+    Aggregate2(..)
+
+  )  
 where
 
 import Lib2(dropWhiteSpaces, 
@@ -94,8 +103,8 @@ import Control.Monad.Free (Free (..), liftF)
 import Control.Monad
 import Data.Time
 import Data.List (find, findIndex, elemIndex, nub, elem, intercalate, sortBy)
-import Debug.Trace
 
+------------------------------------------------------------------------------
 type ColumnName = String
 type Error = String
 
@@ -136,6 +145,8 @@ data SelectedColumns = ColumnsSelected [ColumnName]
   deriving (Show, Eq)
 
 type InsertedValues = [DF.Value]
+
+------------------------------------------------------------------------------
 
 data ParsedStatement3 =
   SelectNow {}
@@ -179,6 +190,7 @@ data ParsedStatement3 =
 
 
 ------------------for communication starts-------------
+
 data SqlStatement = SqlStatement {
   statement :: String
 } deriving (Generic, Show)
@@ -224,7 +236,6 @@ instance FromJSON ColumnFromYAML
 instance FromJSON RowFromYAML
 instance FromJSON ValueFromYAML
 
-
 instance ToJSON SqlException
 instance ToJSON SqlStatement
 instance ToJSON SqlTableFromYAML
@@ -233,6 +244,7 @@ instance ToJSON RowsFromYAML
 instance ToJSON ColumnFromYAML
 instance ToJSON RowFromYAML
 instance ToJSON ValueFromYAML
+
 --------------------------------------------
 toTable :: String -> Maybe SqlTableFromYAML
 toTable yasm = decode $ BS.pack yasm
@@ -343,6 +355,7 @@ data FromJSONRow = FromJSONRow {
 
 
 -----------------for communication ends----------------
+
 ----------------------------- instances ----------------------------------
 
 instance FromJSON FromJSONColumn where
@@ -554,8 +567,10 @@ executeSql sql = case parseStatement sql of
   Left err -> return $ Left err
 
   Right (DropTable table) -> do
-        _ <- dropFile table
-        return $ Left "The table was deleted"
+        drop <- dropFile table
+        case drop of 
+          Left err -> return $ Left $ "Table '" ++ table ++ "' does not exist."
+          Right table -> return $ Right (DataFrame [] [])
 
   Right (CreateTable table columns) -> do
         content <- loadFile table
@@ -746,7 +761,7 @@ executeSelectWithAllSauces specialSelect tables selectedDfs whereSelect time ord
                                   False -> Left "Provided order by columns are faulty"
                                 Nothing -> Right $ deCartesianDataFrame $ createCartesianDataFrame ([createNowDataFrame (uTCToString time)] ++ [createSelectDataFrame (cols ++ cols2) [rows ++ rows2]]) (["Now"] ++ tables) 
                             Left err -> Left err
-                        Left err -> Left err------------------------------------------------------------------------------------------------------
+                        Left err -> Left err
                       Nothing -> case processSelect2 (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions) aggregatesList of
                         Right (cols, rows) -> case null cols of
                           True -> case processSelect2' (filterSelectAll (createCartesianDataFrame selectedDfs tables) conditions) aggregatesList of
@@ -973,7 +988,7 @@ insertToAllDataFrame (DataFrame columns rows) newValues =
 
 ---------------------------------------some insert stuff ends----------------------------
 
----------------------------------------some update stuff ends----------------------------
+---------------------------------------some now() stuff here-----------------------------
 
 createNowDataFrame :: [Row] -> DataFrame
 createNowDataFrame time = DataFrame [Column "Now" StringType] time
@@ -1238,7 +1253,6 @@ compareValues :: AscDesc -> DF.Value -> DF.Value -> Ordering
 compareValues (Asc "asc") v1 v2 = compare v1 v2
 compareValues (Desc "desc") v1 v2 = compare v2 v1
 
---Helper functions to check the constructor of OrderByValue
 isColumnTable :: OrderByValue -> Bool
 isColumnTable (ColumnTable _) = True
 isColumnTable _ = False
@@ -1786,7 +1800,6 @@ getConcatRows :: [Row] -> [Row] -> [Row]
 getConcatRows [] [] = []
 getConcatRows (x:xs) (y:ys) = [x ++ y] ++ getConcatRows xs ys
 
---patikrinimui ar ne ambiguous
 getColumnsFromAggregates :: [Aggregate2] -> [ColumnName]
 getColumnsFromAggregates [] = []
 getColumnsFromAggregates (x:xs) =
@@ -1970,7 +1983,7 @@ findColumnTableIndex :: ColumnName -> TableName -> [CartesianColumn] -> Int
 findColumnTableIndex columnName tableName columns = columnTableIndex columnName tableName columns 0
 
 columnTableIndex :: ColumnName -> TableName -> [CartesianColumn] -> Int -> Int
-columnTableIndex _ _ [] index = -1 --index
+columnTableIndex _ _ [] index = -1
 columnTableIndex columnName tableName ((CartesianColumn (table, (Column name _))):xs) index
     | columnName /= name || tableName /= table = (columnTableIndex columnName tableName xs (index + 1))
     | otherwise = index

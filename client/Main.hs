@@ -6,7 +6,6 @@ module Main (main) where
 
 import Network.HTTP.Client
 import Network.HTTP.Types
-import Network.HTTP.Client
 import Network.HTTP.Client.TLS
 
 import Control.Lens
@@ -45,8 +44,6 @@ import System.Console.Repline
 import System.Console.Terminal.Size (Window, size, width)
 import System.Directory (doesFileExist, getDirectoryContents)
 import System.FilePath (pathSeparator)
-
-import Debug.Trace
 
 type Repl a = HaskelineT IO a
 final :: Repl ExitDecision
@@ -114,12 +111,11 @@ handleResponse :: Response BSL.ByteString -> IO (Either ErrorMessage DataFrame)
 handleResponse response = do
   let status = responseStatus response
       responseBodyText = unpack (responseBody response)
-  traceM $ "Response Body Text: " ++ responseBodyText
   case statusCode status of
     200 -> handleSuccess responseBodyText
-    400 -> return $ Left "Bad request: Your query was not good."
+    400 -> case Lib4.toException responseBodyText of
+          Just (Lib4.SqlException msg) -> return $ Left msg
     404 -> return $ Left "Not Found: The server could not find the requested resource."
-    500 -> return $ Left "THIS WILL BE OUR ERROR WHEN GETTING BAD THINGS EYOOO"
     _   -> return $ Left $ "Unexpected status code: " ++ show status
 
 handleSuccess :: String -> IO (Either ErrorMessage DataFrame)

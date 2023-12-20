@@ -26,7 +26,17 @@ module Lib3
     DeserializedContent,
     CartesianColumn(..),
     CartesianDataFrame(..),
-    UTCTime
+    UTCTime,
+    ParsedStatement2(..),
+    parseStatement2,
+    WhereSelect,
+    TableName,
+    SelectedColumns,
+    InsertedValues,
+    SpecialSelect,
+    SelectedColumns,
+    TableArray
+
   )
 where
 import Lib2
@@ -77,7 +87,6 @@ data ExecutionAlgebra next =
   | SaveFile  (TableName, DataFrame) (() -> next)
   | GetTime (UTCTime -> next)
   | DropFile TableName (Maybe ErrorMessage -> next)
-  -- feel free to add more constructors heres 
   deriving Functor
 
 type Execution = Free ExecutionAlgebra
@@ -129,8 +138,6 @@ instance FromJSON FromJSONRow where
     FromJSONRow <$> v .: "Row"
   parseJSON _ = mzero
 
------------------------------------------- a veiksi padliau? ---------------------------------------------------
-
 deserializedContent :: FileContent -> Either ErrorMessage (TableName, DataFrame)
 deserializedContent json = case (toTable json) of
     Just fromjsontable -> Right (toDataframe fromjsontable)
@@ -164,7 +171,6 @@ convertToValue (FromJSONValue str) =
 
 ----------------------------------------------------------------------------------------------------------------
 
--- Keep the type, modify constructors
 data ParsedStatement2 =
   SelectNow {}
   | Insert {
@@ -315,6 +321,7 @@ executeSql sql = case parseStatement2 sql of
                 return $ Right (DataFrame columns [])
             Right _ -> return $ Left "This name of table is already used." 
 -----------------------------------executeSql queries------------------------------------
+
 --------------------------------------Load FILES-----------------------------------------
 
 loadFromFiles :: TableArray -> Execution (Either ErrorMessage [DeserializedContent])

@@ -629,7 +629,7 @@ executeShowTable df table = createColumnsDataFrame (columnsToList df) table
 
 executeShowTables :: TableArray -> DataFrame
 executeShowTables tables = createTablesDataFrame tables
---REIKES ORDER BY:
+--CIA VEIKIA ORDER BY
 executeSelectAll :: TableArray -> [DataFrame] -> Maybe WhereSelect -> Maybe OrderBy -> Either ErrorMessage DataFrame
 executeSelectAll tables selectedDfs whereSelect order = case areTablesValid selectedDfs of
     True -> case whereSelect of
@@ -649,12 +649,12 @@ executeSelectAll tables selectedDfs whereSelect order = case areTablesValid sele
           False -> Left "Some of provided columns do not exist in provided tables"
         True -> Left "Conditions are faulty"
       Nothing -> case order of
-        Just o -> case sortCartesianDataFrame (createCartesianDataFrame [(cartesianDataFrame selectedDfs)] tables) o of
+        Just o -> case sortCartesianDataFrame (createCartesianDataFrame selectedDfs tables) o of
           Right cdf -> Right $ deCartesianDataFrame cdf
           Left err -> Left err
         Nothing -> Right $ cartesianDataFrame selectedDfs
     False -> Left "Some of provided tables are not valid"
-
+--CIA NEVEIKIA ORDER BY
 executeSelectWithAllSauces :: SpecialSelect2 -> TableArray -> [DataFrame] -> Maybe WhereSelect -> UTCTime -> Maybe OrderBy -> Either ErrorMessage DataFrame
 executeSelectWithAllSauces specialSelect tables selectedDfs whereSelect time order = case specialSelect of
   (SelectColumn2 specialColumns nowFunction) -> case doColumnsExistDFs specialColumns selectedDfs of
@@ -699,7 +699,7 @@ executeSelectWithAllSauces specialSelect tables selectedDfs whereSelect time ord
         False -> Left "Some of provided tables are not valid"
       False -> Left "Some of provided column names are ambiguous"
     False -> Left "Some of provided columns do not exist in provided tables"
-
+--CIA NEVEIKIA ORDER BY
   (SelectedColumnsTables specialColumns nowFunction) -> case doColumnsExistProvidedDfs tables selectedDfs specialColumns of
     True -> case areTablesValid selectedDfs of
       True -> case whereSelect of
@@ -742,7 +742,7 @@ executeSelectWithAllSauces specialSelect tables selectedDfs whereSelect time ord
                               (deCartesianColumns $ fst $ getColumnsTablesList specialColumns (createCartesianDataFrame selectedDfs tables), snd $ getColumnsTablesList specialColumns (createCartesianDataFrame selectedDfs tables))
       False -> Left "Some of provided table(s) are not valid"
     False -> Left "Some of provided columns do not exist in provided tables"
---validateOrderBy :: [(OrderByValue, AscDesc)] -> CartesianDataFrame -> Bool  Left "Provided order by columns are faulty"
+--CIA NEVEIKIA ORDER BY
   (SelectAggregate2 aggregatesList nowFunction) -> case areTablesValid selectedDfs of
     True -> case doColumnsExistDFs (getColumnsFromAggregates aggregatesList) selectedDfs of
       True -> case checkForMatchingColumns (getAllColumnsCartesianDF (createCartesianDataFrame selectedDfs tables)) (getColumnsFromAggregates aggregatesList)of
@@ -1214,25 +1214,18 @@ toCartesianColumns (CartesianDataFrame cols rows) = cols
 
 sortCartesianDataFrame :: CartesianDataFrame -> OrderBy -> Either ErrorMessage CartesianDataFrame
 sortCartesianDataFrame (CartesianDataFrame cols rows) order = do
-    -- case validateOrderBy order (CartesianDataFrame cols rows) of
-    --   False -> Left "Order by values are not valid"
-    --   True -> do
   sortByValues <- mapM (getValuesForSort (CartesianDataFrame cols rows)) order
   let sortedRows = sortBy (compareWhenEqual sortByValues) rows
   return $ CartesianDataFrame cols sortedRows
 
+ac :: CartesianColumn -> TableName
+ac (CartesianColumn (table, Column name _)) = table
+
 getValuesForSort :: CartesianDataFrame -> (OrderByValue, AscDesc) -> Either ErrorMessage (Int, AscDesc)
-getValuesForSort cdf (order, ascdesc) = case order of
+getValuesForSort (cdf@(CartesianDataFrame cols _)) (order, ascdesc) = case order of
   ColumnNumber _ -> Right ((getColumnNumberFromOrderBy (order, ascdesc))-1, ascdesc)
   ColumnName _ -> Right ((findColumnIndex (getColumnNameFromOrderBy (order, ascdesc)) (deCartesianColumns (toCartesianColumns cdf)))-1, ascdesc)
-  ColumnTable _ -> Right ((getColumnTableFromOrderBy (order, ascdesc) cdf), ascdesc)
-  
-
--- compareWhenEqual :: [(Int, AscDesc)] -> Row -> Row -> Ordering
--- compareWhenEqual [] _ _ = EQ
--- compareWhenEqual ((i, ascdesc):iascdesc) row1 row2 =
---     let primaryOrder = compareValues ascdesc (row1 !! i) (row2 !! i)
---     in if primaryOrder == EQ then compareWhenEqual iascdesc row1 row2 else primaryOrder
+  ColumnTable (table, name) -> Right (findColumnTableIndex name table cols, ascdesc)--Right ((getColumnTableFromOrderBy (order, ascdesc) cdf), ascdesc)
 
 compareWhenEqual :: [(Int, AscDesc)] -> Row -> Row -> Ordering
 compareWhenEqual [] _ _ = EQ
@@ -1240,7 +1233,6 @@ compareWhenEqual ((i, ascdesc):iascdesc) row1 row2 =
     let primaryOrder = compareValues ascdesc (row1 !! i) (row2 !! i)
     in if primaryOrder == EQ then compareWhenEqual (adjustIndices iascdesc) row1 row2 else primaryOrder
   where
-    -- Adjust indices in the list after removing an element
     adjustIndices = map (\(idx, desc) -> (if idx > i then idx - 1 else idx, desc))
 
 compareValues :: AscDesc -> DF.Value -> DF.Value -> Ordering
@@ -2264,7 +2256,7 @@ findColumnTableIndex :: ColumnName -> TableName -> [CartesianColumn] -> Int
 findColumnTableIndex columnName tableName columns = columnTableIndex columnName tableName columns 0
 
 columnTableIndex :: ColumnName -> TableName -> [CartesianColumn] -> Int -> Int
-columnTableIndex _ _ [] index = index
+columnTableIndex _ _ [] index = -1 --index
 columnTableIndex columnName tableName ((CartesianColumn (table, (Column name _))):xs) index
     | columnName /= name || tableName /= table = (columnTableIndex columnName tableName xs (index + 1))
     | otherwise = index
